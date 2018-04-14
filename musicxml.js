@@ -1,3 +1,26 @@
+/*
+ * part.id . . . . . . . . . . . . . . . String
+ * part.name . . . . . . . . . . . . . . String
+ * part.abbreviation . . . . . . . . . . String
+ * part.staves . . . . . . . . . . . . . Array
+ * part.staves[].vf_stave  . . . . . . . Vex.Flow.Stave
+ * part.staves[].clef  . . . . . . . . . String
+ * part.staves[].voices  . . . . . . . . Object
+ * part.staves[].voices[].vf_voice . . . Vex.Flow.Voice
+ * part.staves[].voices[].beams  . . . . Object
+ * part.staves[].voices[].beams[]  . . . Array
+ * part.staves[].voices[].beams[][]  . . Vex.Flow.StaveNote
+ * part.staves[].voices[].ties . . . . . Object
+ * part.staves[].voices[].ties[].vf_note Vex.Flow.StaveNote
+ * part.staves[].voices[].ties[].line  . int
+ * part.staves[].voices[].ties[].index . int
+ * part.measures . . . . . . . . . . . . int
+ * part.vf_connectors  . . . . . . . . . Array
+ * part.vf_connectors[]  . . . . . . . . Vex.Flow.StaveConnector
+ * part.vf_ties  . . . . . . . . . . . . Array
+ * part.vf_ties[]. . . . . . . . . . . . Vex.Flow.StaveTie
+ */
+
 function parseKey( xml_key ) {
 	var fifths = parseInt( xml_key.getElementsByTagName( 'fifths' )[0].innerHTML );
 	for ( var key in Vex.Flow.keySignature.keySpecs ) {
@@ -83,22 +106,6 @@ function parsePitch( pitch ) {
 	return step + '/' + octave;
 }
 
-/*
- * part.id                   String
- * part.name                 String
- * part.abbreviation         String
- * part.staves               Array
- * part.staves[].vf_stave    Vex.Flow.Stave
- * part.staves[].clef        String
- * part.staves[].vf_voices   Object
- * part.staves[].vf_voices[] Vex.Flow.Voice
- * part.staves[].beams       Object
- * part.staves[].beams[]     Array
- * part.staves[].beams[][]   Vex.Flow.StaveNote
- * part.measures             int
- * part.vf_drawables         Array
- */
-
 function build_part_staves( part, options, state ) {
 	// stave options
 	var stave_options = {};
@@ -121,8 +128,7 @@ function build_part_staves( part, options, state ) {
 			part.staves[stave_cnt] = {
 				vf_stave: null,
 				clef: null,
-				vf_voices: {},
-				beams: {},
+				voices: {},
 			};
 		// shorthand to current stave
 		let stave = part.staves[stave_cnt];
@@ -144,7 +150,7 @@ function build_part_staves( part, options, state ) {
 			let connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
 			connector.setType( Vex.Flow.StaveConnector.type.BRACE );
 			connector.setText( state.line_cnt ? part.abbreviation : part.name, Vex.Flow.Modifier.Position.LEFT );
-			part.vf_drawables.push( connector );
+			part.vf_connectors.push( connector );
 		}
 	}
 	// add vertical part lines
@@ -154,10 +160,10 @@ function build_part_staves( part, options, state ) {
 		let connector;
 		connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
 		connector.setType( Vex.Flow.StaveConnector.type.SINGLE_LEFT );
-		part.vf_drawables.push( connector );
+		part.vf_connectors.push( connector );
 		connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
 		connector.setType( Vex.Flow.StaveConnector.type.SINGLE_RIGHT );
-		part.vf_drawables.push( connector );
+		part.vf_connectors.push( connector );
 	}
 }
 
@@ -202,7 +208,8 @@ function parseXML( xml ) {
 					index += this.staves.length;
 				return this.staves[index];
 			},
-			vf_drawables: [],
+			vf_connectors: [],
+			vf_ties: [],
 		} );
 	}
 
@@ -292,10 +299,16 @@ function parseXML( xml ) {
 							stave_cnt = 0;
 						let stave = part.staves[stave_cnt];
 						// voice
-						let vf_voice = element.getElementsByTagName( 'voice' )[0].innerHTML;
-						if ( !( vf_voice in stave.vf_voices ) )
-							stave.vf_voices[vf_voice] = new Vex.Flow.Voice( part.time );
-						vf_voice = stave.vf_voices[vf_voice];
+						let voice = element.getElementsByTagName( 'voice' )[0].innerHTML;
+						if ( !( voice in stave.voices ) )
+							stave.voices[voice] = {
+								vf_voice: null,
+								beams: {},
+								ties: {},
+							};
+						voice = stave.voices[voice];
+						if ( voice.vf_voice === null )
+							voice.vf_voice = new Vex.Flow.Voice( part.time );
 						// note objects
 						let note = {};
 						let vf_note;
@@ -336,9 +349,57 @@ function parseXML( xml ) {
 						if ( element.getElementsByTagName( 'beam' ).length ) {
 							// TODO multiple beams
 							let beam = element.getElementsByTagName( 'beam' )[0].getAttribute( 'number' );
-							if ( !( beam in stave.beams ) )
-								stave.beams[beam] = [];
-							stave.beams[beam].push( vf_note );
+							if ( !( beam in voice.beams ) )
+								voice.beams[beam] = [];
+							voice.beams[beam].push( vf_note );
+						}
+						// tie
+						if ( !element.getElementsByTagName( 'rest' ).length ) {
+							let sibling = element;
+							let pos = 0;
+							do {
+								let pitch = parsePitch( sibling.getElementsByTagName( 'pitch' )[0] ); // TODO absolute pitch
+								for ( let tie of element.getElementsByTagName( 'tie' ) ) {
+									switch ( tie.getAttribute( 'type' ) ) {
+										case 'start':
+											if ( !( pitch in voice.ties ) || voice.ties[pitch] === null )
+												voice.ties[pitch] = {
+													vf_note: vf_note,
+													line: state.line_cnt,
+													index: pos,
+												};
+											break;
+										case 'stop':
+											let tie_beg = voice.ties[pitch];
+											voice.ties[pitch] = null;
+											let tie_end = {
+												vf_note: vf_note,
+												line: state.line_cnt,
+												index: pos,
+											};
+											if ( tie_beg.line === tie_end.line ) {
+												part.vf_ties.push( new Vex.Flow.StaveTie( {
+													first_note: tie_beg.vf_note,
+													last_note: tie_end.vf_note,
+													first_indices: [ tie_beg.index ],
+													last_indices: [ tie_end.index ],
+												} ) );
+											} else {
+												part.vf_ties.push( new Vex.Flow.StaveTie( {
+													first_note: tie_beg.vf_note,
+													first_indices: [ tie_beg.index ],
+												} ) );
+												part.vf_ties.push( new Vex.Flow.StaveTie( {
+													last_note: tie_end.vf_note,
+													last_indices: [ tie_end.index ],
+												} ) );
+											}
+											break;
+									}
+								}
+								sibling = sibling.nextElementSibling;
+								pos++;
+							} while ( sibling !== null && sibling.getElementsByTagName( 'chord' ).length );
 						}
 						// lyric
 						if ( element.getElementsByTagName( 'lyric' ).length ) {
@@ -358,7 +419,7 @@ function parseXML( xml ) {
 						for ( let dot = 0; dot < note.dots; dot++ )
 							vf_note.addDotToAll();
 						//
-						vf_voice.addTickable( vf_note );
+						voice.vf_voice.addTickable( vf_note );
 						break;
 				}
 			}
@@ -366,37 +427,48 @@ function parseXML( xml ) {
 		for ( let part of parts ) {
 			for ( let stave of part.staves )
 				stave.vf_stave.setContext( context ).draw();
-			for ( let vf_drawable of part.vf_drawables )
-				vf_drawable.setContext( context ).draw();
-			part.vf_drawables = [];
+			for ( let vf_connector of part.vf_connectors )
+				vf_connector.setContext( context ).draw();
+			part.vf_connectors = [];
 		}
 		let vf_voices = [];
 		for ( let part of parts )
 			for ( let stave of part.staves )
-				for ( let voice_id in stave.vf_voices )
-					vf_voices.push( stave.vf_voices[voice_id] );
+				for ( let voice_id in stave.voices )
+					vf_voices.push( stave.voices[voice_id].vf_voice );
 		let formatter = new Vex.Flow.Formatter().joinVoices( vf_voices ).format( vf_voices, options.STAVE_WIDTH );
+		vf_voices = [];
 		let vf_beams = [];
 		for ( let part of parts ) {
 			for ( let stave of part.staves ) {
-				for ( let beam in stave.beams ) {
-					vf_beams.push( new Vex.Flow.Beam( stave.beams[beam] ) );
-					stave.beams = {};
+				for ( let voice_id in stave.voices ) {
+					let voice = stave.voices[voice_id];
+					for ( let beam_id in voice.beams ) {
+						let beam = voice.beams[beam_id];
+						vf_beams.push( new Vex.Flow.Beam( beam ) );
+						voice.beams = {};
+					}
 				}
 			}
 		}
-		vf_voices = [];
 		for ( let part of parts ) {
 			for ( let stave of part.staves ) {
-				for ( let voice_id in stave.vf_voices )
-					stave.vf_voices[voice_id].draw( context, stave.vf_stave );
+				for ( let voice_id in stave.voices ) {
+					let voice = stave.voices[voice_id];
+					voice.vf_voice.draw( context, stave.vf_stave );
+					stave.voices[voice_id].vf_voice = null;
+				}
 				stave.vf_stave = null;
-				stave.vf_voices = {};
 			}
 		}
 		for ( let vf_beam of vf_beams )
 			vf_beam.setContext( context ).draw();
 		vf_beams = [];
+		for ( let part of parts ) {
+			for ( let vf_tie of part.vf_ties )
+				vf_tie.setContext( context ).draw();
+			part.vf_ties = [];
+		}
 		state.x += options.STAVE_WIDTH;
 		i++;
 		renderer.resize( line_width, state.y ); // TODO delete line
