@@ -84,31 +84,19 @@ function parsePitch( pitch ) {
 }
 
 /*
- * @param part.id                String
- * @param part.name              String
- * @param part.abbreviation      String
- * @param part.staves            Array
- * @param part.staves[].vf_stave Vex.Flow.Stave
- * @param part.staves[].clef     String
- * @param part.measures          int
- *
- * @param context Vex.Flow.Renderer context
- *
- * @param options.LINE_INDENT  int
- * @param options.STAVE_WIDTH  int
- * @param options.STAVE_HEIGHT int
- * @param options.STAVE_MARGIN int
- * @param options.PART_MARGIN  int
- * @param options.LINE_MARGIN  int
- *
- * @param state.x            int
- * @param state.y            int
- * @param state.top          int
- * @param state.line_cnt     int
- * @param state.part_cnt     int
- * @param state.vf_drawables Array
+ * part.id                   String
+ * part.name                 String
+ * part.abbreviation         String
+ * part.staves               Array
+ * part.staves[].vf_stave    Vex.Flow.Stave
+ * part.staves[].clef        String
+ * part.staves[].vf_voices   Object
+ * part.staves[].vf_voices[] Vex.Flow.Voice
+ * part.measures             int
+ * part.vf_drawables         Array
  */
-function build_part_staves( part, context, options, state ) {
+
+function build_part_staves( part, options, state ) {
 	// stave options
 	var stave_options = {};
 	if ( part.staves.length > 1 ) {
@@ -127,16 +115,19 @@ function build_part_staves( part, context, options, state ) {
 			state.y = state.top;
 		// create stave if it does not exist
 		if ( !( stave_cnt in part.staves ) )
-			part.staves[stave_cnt] = {};
+			part.staves[stave_cnt] = {
+				vf_stave: null,
+				vf_voices: {},
+				clef: null,
+			};
 		// shorthand to current stave
 		let stave = part.staves[stave_cnt];
 		// create vf_stave
 		stave.vf_stave = new Vex.Flow.Stave( state.x, state.y, options.STAVE_WIDTH, stave_options );
-		stave.vf_stave.setContext( context );
 		// add clef and key signature to the first stave of each line
-		if ( state.x === options.LINE_INDENT && 'clef' in stave )
+		if ( state.x === options.LINE_INDENT && stave.clef !== null )
 			stave.vf_stave.addClef( stave.clef );
-		if ( state.x === options.LINE_INDENT && 'key' in part )
+		if ( state.x === options.LINE_INDENT && part.key !== null )
 			stave.vf_stave.addKeySignature( part.key );
 		// move state.y to the bottom of the current stave
 		state.y += options.STAVE_HEIGHT;
@@ -149,8 +140,7 @@ function build_part_staves( part, context, options, state ) {
 			let connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
 			connector.setType( Vex.Flow.StaveConnector.type.BRACE );
 			connector.setText( state.line_cnt ? part.abbreviation : part.name, Vex.Flow.Modifier.Position.LEFT );
-			connector.setContext( context );
-			state.vf_drawables.push( connector );
+			part.vf_drawables.push( connector );
 		}
 	}
 	// add vertical part lines
@@ -160,12 +150,10 @@ function build_part_staves( part, context, options, state ) {
 		let connector;
 		connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
 		connector.setType( Vex.Flow.StaveConnector.type.SINGLE_LEFT );
-		connector.setContext( context );
-		state.vf_drawables.push( connector );
+		part.vf_drawables.push( connector );
 		connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
 		connector.setType( Vex.Flow.StaveConnector.type.SINGLE_RIGHT );
-		connector.setContext( context );
-		state.vf_drawables.push( connector );
+		part.vf_drawables.push( connector );
 	}
 }
 
@@ -201,13 +189,16 @@ function parseXML( xml ) {
 			id: xml_part.id,
 			name: part_list.getElementsByTagName( 'score-part' )[xml_part.id].getElementsByTagName( 'part-name' )[0].innerHTML,
 			abbreviation: part_list.getElementsByTagName( 'score-part' )[xml_part.id].getElementsByTagName( 'part-abbreviation' )[0].innerHTML,
-			staves: null,
+			key: null,
+			time: null,
+			staves: [],
 			measures: xml_part.getElementsByTagName( 'measure' ).length,
 			getStave: function( index ) {
 				if ( index < 0 )
 					index += this.staves.length;
 				return this.staves[index];
 			},
+			vf_drawables: [],
 		} );
 	}
 
@@ -217,7 +208,6 @@ function parseXML( xml ) {
 		top: 0,
 		line_cnt: 0,
 		part_cnt: 0,
-		vf_drawables: [],
 	};
 
 	var i = 0;
@@ -245,60 +235,116 @@ function parseXML( xml ) {
 			// shorthand to current part
 			var part = parts[state.part_cnt];
 			// build part staves in case they are initialized
-			if ( part.staves !== null )
-				build_part_staves( part, context, options, state );
+			if ( part.staves.length )
+				build_part_staves( part, options, state );
 			// loop each measure element
 			for ( var element of xml_parts[state.part_cnt].getElementsByTagName( 'measure' )[i].children ) {
 				switch ( element.tagName ) {
 					case 'attributes':
 						// build part staves in case the are not initialized
-						if ( part.staves === null ) {
+						if ( !part.staves.length ) {
 							if ( element.getElementsByTagName( 'staves' ).length )
 								part.staves = new Array( parseInt( element.getElementsByTagName( 'staves' )[0].innerHTML ) );
 							else
 								part.staves = new Array( 1 );
-							build_part_staves( part, context, options, state );
+							build_part_staves( part, options, state );
+							// add clef to staves
+							for ( let xml_clef of element.getElementsByTagName( 'clef' ) ) {
+								let stave_cnt = xml_clef.getAttribute( 'number' );
+								if ( stave_cnt !== null )
+									stave_cnt = parseInt( stave_cnt ) - 1;
+								else
+									stave_cnt = 0;
+								let stave = part.staves[stave_cnt];
+								stave.clef = parseClef( xml_clef );
+								stave.vf_stave.addClef( stave.clef );
+							}
+							// add key signature to staves
+							if ( element.getElementsByTagName( 'key' ).length ) {
+								part.key = parseKey( element.getElementsByTagName( 'key' )[0] );
+								for ( let stave of part.staves )
+									stave.vf_stave.addKeySignature( part.key );
+							}
+							// add time signature to staves
+							if ( element.getElementsByTagName( 'time' ).length ) {
+								// TODO common time and common time cut
+								part.time = {
+									num_beats: parseInt( element.getElementsByTagName( 'time' )[0].getElementsByTagName( 'beats' )[0].innerHTML ),
+									beat_value: parseInt( element.getElementsByTagName( 'time' )[0].getElementsByTagName( 'beat-type' )[0].innerHTML ),
+								};
+								for ( let stave of part.staves )
+									stave.vf_stave.addTimeSignature( part.time.num_beats + '/' + part.time.beat_value );
+							}
 						}
-						// add clef to staves
-						for ( let xml_clef of element.getElementsByTagName( 'clef' ) ) {
-							let stave_cnt = xml_clef.getAttribute( 'number' );
-							if ( stave_cnt !== null )
-								stave_cnt = parseInt( stave_cnt ) - 1;
+						break;
+					case 'note':
+						// stave
+						let stave_cnt = element.getElementsByTagName( 'staff' );
+						if ( stave_cnt.length )
+							stave_cnt = parseInt( stave_cnt[0].innerHTML ) - 1;
+						else
+							stave_cnt = 0;
+						let stave = part.staves[stave_cnt];
+						// voice
+						let vf_voice = element.getElementsByTagName( 'voice' )[0].innerHTML;
+						if ( !( vf_voice in stave.vf_voices ) )
+							stave.vf_voices[vf_voice] = new Vex.Flow.Voice( part.time );
+						vf_voice = stave.vf_voices[vf_voice];
+						// note objects
+						let note = {};
+						let vf_note;
+						// duration
+						if ( element.getElementsByTagName( 'type' ).length )
+							note.duration = parseDuration( element.getElementsByTagName( 'type' )[0].innerHTML );
+						else
+							note.duration = parseDuration();
+						// dots
+						note.dots = element.getElementsByTagName( 'dot' ).length;
+						if ( element.getElementsByTagName( 'rest' ).length ) {
+							if ( note.duration === 'w' )
+								note.keys = [ 'c/5' ];
 							else
-								stave_cnt = 0;
-							let stave = part.staves[stave_cnt];
-							stave.clef = parseClef( xml_clef );
-							stave.vf_stave.addClef( stave.clef );
+								note.keys = [ 'b/4' ];
+							note.duration += 'r';
+							vf_note = new Vex.Flow.StaveNote( note );
+							// TODO center align whole measure rests
+						} else {
+							note.keys = [ parsePitch( element.getElementsByTagName( 'pitch' )[0] ) ];
+							// TODO accidentals https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-alter.htm
+							// TODO chords https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-chord.htm
+							vf_note = new Vex.Flow.StaveNote( note );
 						}
-						// add key signature to staves
-						if ( element.getElementsByTagName( 'key' ).length ) {
-							part.key = parseKey( element.getElementsByTagName( 'key' )[0] );
-							for ( let stave of part.staves )
-								stave.vf_stave.addKeySignature( part.key );
-						}
-						// add time signature to staves
-						if ( element.getElementsByTagName( 'time' ).length ) {
-							// TODO common time and common time cut
-							part.time = {
-								num_beats: parseInt( element.getElementsByTagName( 'time' )[0].getElementsByTagName( 'beats' )[0].innerHTML ),
-								beat_value: parseInt( element.getElementsByTagName( 'time' )[0].getElementsByTagName( 'beat-type' )[0].innerHTML ),
-							};
-							for ( let stave of part.staves )
-								stave.vf_stave.addTimeSignature( part.time.num_beats + '/' + part.time.beat_value );
-						}
+						// dots
+						for ( let dot = 0; dot < note.dots; dot++ )
+							vf_note.addDotToAll();
+						//
+						vf_voice.addTickable( vf_note );
 						break;
 				}
 			}
 		}
 		for ( let part of parts ) {
+			for ( let stave of part.staves )
+				stave.vf_stave.setContext( context ).draw();
+			for ( let vf_drawable of part.vf_drawables )
+				vf_drawable.setContext( context ).draw();
+			part.vf_drawables = [];
+		}
+		let vf_voices = [];
+		for ( let part of parts )
+			for ( let stave of part.staves )
+				for ( let voice_id in stave.vf_voices )
+					vf_voices.push( stave.vf_voices[voice_id] );
+		let formatter = new Vex.Flow.Formatter().joinVoices( vf_voices ).format( vf_voices, options.STAVE_WIDTH );
+		vf_voices = [];
+		for ( let part of parts ) {
 			for ( let stave of part.staves ) {
-				stave.vf_stave.draw();
+				for ( let voice_id in stave.vf_voices )
+					stave.vf_voices[voice_id].draw( context, stave.vf_stave );
 				stave.vf_stave = null;
+				stave.vf_voices = {};
 			}
 		}
-		for ( let vf_drawable of state.vf_drawables )
-			vf_drawable.draw();
-		state.vf_drawables = [];
 		state.x += options.STAVE_WIDTH;
 		i++;
 		renderer.resize( line_width, state.y ); // TODO delete line
