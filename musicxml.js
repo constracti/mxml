@@ -282,6 +282,8 @@ function parseXML( xml ) {
 						}
 						break;
 					case 'note':
+						if ( element.getElementsByTagName( 'chord' ).length )
+							continue;
 						// stave
 						let stave_cnt = element.getElementsByTagName( 'staff' );
 						if ( stave_cnt.length )
@@ -321,9 +323,13 @@ function parseXML( xml ) {
 							// TODO center align whole measure rests
 						} else {
 							note.clef = stave.clef;
-							note.keys = [ parsePitch( element.getElementsByTagName( 'pitch' )[0] ) ];
+							note.keys = [];
+							let sibling = element;
+							do {
+								note.keys.push( parsePitch( sibling.getElementsByTagName( 'pitch' )[0] ) );
+								sibling = sibling.nextElementSibling;
+							} while ( sibling !== null && sibling.getElementsByTagName( 'chord' ).length );
 							// TODO accidentals https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-alter.htm
-							// TODO chords https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-chord.htm
 							vf_note = new Vex.Flow.StaveNote( note );
 						}
 						// beam
