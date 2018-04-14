@@ -8,6 +8,10 @@
 	</head>
 	<body>
 		<div id="xml"></div>
-		<script src="musicxml.js?v=<?= filemtime( 'musicxml.js' ) ?>"></script>
+		<script>
+<?php
+echo file_get_contents( 'musicxml.js' );
+?>
+		</script>
 	</body>
 </html>
