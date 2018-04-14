@@ -218,8 +218,8 @@ function parseXML( xml ) {
 
 	var state = {
 		x: options.LINE_INDENT,
-		y: 0,
-		top: 0,
+		y: 50,
+		top: 50,
 		line_cnt: 0,
 		part_cnt: 0,
 	};
@@ -525,5 +525,5 @@ function parseXML( xml ) {
 		renderer.resize( line_width, state.y ); // TODO delete line
 	}
 	
-	renderer.resize( line_width, state.y );
+	renderer.resize( line_width, state.y + options.LINE_MARGIN );
 }
