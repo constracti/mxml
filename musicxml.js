@@ -304,6 +304,16 @@ function parseXML( xml ) {
 							note.duration = parseDuration();
 						// dots
 						note.dots = element.getElementsByTagName( 'dot' ).length;
+						// stem
+						if ( element.getElementsByTagName( 'stem' ).length ) {
+							let stem = element.getElementsByTagName( 'stem' )[0].innerHTML;
+							if ( stem === 'up' )
+								note.stem_direction = Vex.Flow.Stem.UP;
+							else if ( stem === 'down' )
+								note.stem_direction = Vex.Flow.Stem.DOWN;
+							else if ( stem === 'double' )
+								; // TODO double stem
+						}
 						if ( element.getElementsByTagName( 'rest' ).length ) {
 							note.duration += 'r';
 							note.keys = [ 'r/4' ];
