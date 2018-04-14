@@ -253,6 +253,7 @@ function parseXML( xml ) {
 				build_part_staves( part, options, state );
 			// loop each measure element
 			for ( var element of xml_parts[state.part_cnt].getElementsByTagName( 'measure' )[i].children ) {
+				let stave, voice, note = {}, vf_note;
 				switch ( element.tagName ) {
 					case 'attributes':
 						// build part staves in case the are not initialized
@@ -316,18 +317,9 @@ function parseXML( xml ) {
 							}
 						}
 						break;
-					case 'note':
-						if ( element.getElementsByTagName( 'chord' ).length )
-							continue;
-						// stave
-						let stave_cnt = element.getElementsByTagName( 'staff' );
-						if ( stave_cnt.length )
-							stave_cnt = parseInt( stave_cnt[0].innerHTML ) - 1;
-						else
-							stave_cnt = 0;
-						let stave = part.staves[stave_cnt];
-						// voice
-						let voice = element.getElementsByTagName( 'voice' )[0].innerHTML;
+					case 'harmony':
+						voice = 'harmony';
+						stave = part.staves[0];
 						if ( !( voice in stave.voices ) )
 							stave.voices[voice] = {
 								vf_voice: null,
@@ -337,9 +329,33 @@ function parseXML( xml ) {
 						voice = stave.voices[voice];
 						if ( voice.vf_voice === null )
 							voice.vf_voice = new Vex.Flow.Voice( part.time );
-						// note objects
-						let note = {};
-						let vf_note;
+						note.text = element.getElementsByTagName( 'root' )[0].getElementsByTagName( 'root-step' )[0].innerHTML;
+						note.duration = parseDuration(); // TODO harmony duration
+						vf_note = new Vex.Flow.TextNote( note );
+						vf_note.setContext( context );
+						voice.vf_voice.addTickable( vf_note );
+						break;
+					case 'note':
+						if ( element.getElementsByTagName( 'chord' ).length )
+							continue;
+						// stave
+						let stave_cnt = element.getElementsByTagName( 'staff' );
+						if ( stave_cnt.length )
+							stave_cnt = parseInt( stave_cnt[0].innerHTML ) - 1;
+						else
+							stave_cnt = 0;
+						stave = part.staves[stave_cnt];
+						// voice
+						voice = element.getElementsByTagName( 'voice' )[0].innerHTML;
+						if ( !( voice in stave.voices ) )
+							stave.voices[voice] = {
+								vf_voice: null,
+								beams: {},
+								ties: {},
+							};
+						voice = stave.voices[voice];
+						if ( voice.vf_voice === null )
+							voice.vf_voice = new Vex.Flow.Voice( part.time );
 						// duration
 						if ( element.getElementsByTagName( 'type' ).length )
 							note.duration = parseDuration( element.getElementsByTagName( 'type' )[0].innerHTML );
@@ -460,10 +476,15 @@ function parseXML( xml ) {
 			part.vf_connectors = [];
 		}
 		let vf_voices = [];
-		for ( let part of parts )
-			for ( let stave of part.staves )
-				for ( let voice_id in stave.voices )
-					vf_voices.push( stave.voices[voice_id].vf_voice );
+		for ( let part of parts ) {
+			for ( let stave of part.staves ) {
+				for ( let voice_id in stave.voices ) {
+					let voice = stave.voices[voice_id];
+					if ( voice.vf_voice !== null )
+						vf_voices.push( voice.vf_voice );
+				}
+			}
+		}
 		let formatter = new Vex.Flow.Formatter().joinVoices( vf_voices ).format( vf_voices, options.STAVE_WIDTH );
 		vf_voices = [];
 		let vf_beams = [];
@@ -483,8 +504,10 @@ function parseXML( xml ) {
 			for ( let stave of part.staves ) {
 				for ( let voice_id in stave.voices ) {
 					let voice = stave.voices[voice_id];
-					voice.vf_voice.draw( context, stave.vf_stave );
-					stave.voices[voice_id].vf_voice = null;
+					if ( voice.vf_voice !== null ) {
+						voice.vf_voice.draw( context, stave.vf_stave );
+						voice.vf_voice = null;
+					}
 				}
 				stave.vf_stave = null;
 			}
