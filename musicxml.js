@@ -77,10 +77,30 @@ function parseDuration( type ) {
 	}
 }
 
-function parsePitch( pitch ) {
-	var step = pitch.getElementsByTagName( 'step' )[0].innerHTML;
-	var octave = parseInt( pitch.getElementsByTagName( 'octave' )[0].innerHTML );
-	return step + '/' + octave;
+function parsePitch( pitch, clef ) {
+	let steps = [
+		'C',
+		'D',
+		'E',
+		'F',
+		'G',
+		'A',
+		'B',
+	];
+	let codes = {
+		C: 0,
+		D: 1,
+		E: 2,
+		F: 3,
+		G: 4,
+		A: 5,
+		B: 6,
+	}
+	let step = pitch.getElementsByTagName( 'step' )[0].innerHTML.toUpperCase();
+	let octave = parseInt( pitch.getElementsByTagName( 'octave' )[0].innerHTML );
+	let code = 7 * octave + codes[step];
+	code += Vex.Flow.clefProperties( clef ).line_shift * 2;
+	return steps[code % 7] + '/' + Math.trunc(code / 7);
 }
 
 /*
@@ -309,7 +329,7 @@ function parseXML( xml ) {
 							vf_note = new Vex.Flow.StaveNote( note );
 							// TODO center align whole measure rests
 						} else {
-							note.keys = [ parsePitch( element.getElementsByTagName( 'pitch' )[0] ) ];
+							note.keys = [ parsePitch( element.getElementsByTagName( 'pitch' )[0], stave.clef ) ];
 							// TODO accidentals https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-alter.htm
 							// TODO chords https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-chord.htm
 							vf_note = new Vex.Flow.StaveNote( note );
