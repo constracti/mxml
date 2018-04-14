@@ -300,17 +300,13 @@ function parseXML( xml ) {
 							note.duration = parseDuration();
 						// dots
 						note.dots = element.getElementsByTagName( 'dot' ).length;
-						// clef
-						note.clef = stave.clef;
 						if ( element.getElementsByTagName( 'rest' ).length ) {
-							if ( note.duration === 'w' )
-								note.keys = [ 'c/5' ];
-							else
-								note.keys = [ 'b/4' ];
 							note.duration += 'r';
+							note.keys = [ 'r/4' ];
 							vf_note = new Vex.Flow.StaveNote( note );
 							// TODO center align whole measure rests
 						} else {
+							note.clef = stave.clef;
 							note.keys = [ parsePitch( element.getElementsByTagName( 'pitch' )[0] ) ];
 							// TODO accidentals https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-alter.htm
 							// TODO chords https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-chord.htm
