@@ -83,6 +83,11 @@ function getBarType( bar_style ) {
 	// Vex.Flow.Barline.type.REPEAT_BOTH;
 }
 
+function getBarLineConnectorType( location, bar_style ) {
+	if ( location === 'right' && bar_style === 'light-heavy' )
+			return Vex.Flow.StaveConnector.type.BOLD_DOUBLE_RIGHT;
+}
+
 function parseDuration( type ) {
 	switch ( type ) {
 		// TODO maxima, long, 512th, 1024th
@@ -155,8 +160,6 @@ function build_part_staves( part, options, state ) {
 	}
 	// add vertical part lines
 	if ( part.staves.length > 1 ) {
-		let vf_stave_top = part.staves[0].vf_stave;
-		let vf_stave_bot = part.staves[part.staves.length - 1].vf_stave;
 		let connector;
 		connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
 		connector.setType( Vex.Flow.StaveConnector.type.SINGLE_LEFT );
@@ -285,6 +288,31 @@ function parseXML( xml ) {
 								};
 								for ( let stave of part.staves )
 									stave.vf_stave.addTimeSignature( part.time.num_beats + '/' + part.time.beat_value );
+							}
+						}
+						break;
+					case 'barline':
+						let location = element.getAttribute( 'location' );
+						if ( location === null )
+							location = 'right';
+						let bar_style = element.getElementsByTagName( 'bar-style' )[0].innerHTML;
+						if ( part.staves.length > 1 ) {
+							let type = getBarLineConnectorType( location, bar_style );
+							let connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
+							connector.setType( type );
+							part.vf_connectors.push( connector );
+						} else if ( part.staves.length === 1 ) {
+							let type = getBarType( bar_style );
+							switch ( location ) {
+								case 'right':
+									part.getStave(0).vf_stave.setEndBarType( type );
+									break;
+								case 'left':
+									part.getStave(0).vf_stave.setBegBarType( type );
+									break;
+								case 'middle':
+									// TODO middle
+									break;
 							}
 						}
 						break;
