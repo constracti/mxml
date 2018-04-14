@@ -334,6 +334,20 @@ function parseXML( xml ) {
 								stave.beams[beam] = [];
 							stave.beams[beam].push( vf_note );
 						}
+						// lyric
+						if ( element.getElementsByTagName( 'lyric' ).length ) {
+							let text = element.getElementsByTagName( 'lyric' )[0].getElementsByTagName( 'text' )[0].innerHTML;
+							let syllabic = element.getElementsByTagName( 'lyric' )[0].getElementsByTagName( 'syllabic' )[0].innerHTML;
+							if ( syllabic === 'begin' || syllabic === 'middle' )
+								text += ' -';
+							else if ( syllabic === 'end' || syllabic === 'single' )
+								;
+							var annotation = new Vex.Flow.Annotation( text );
+							annotation.setVerticalJustification( Vex.Flow.Annotation.VerticalJustify.BOTTOM );
+							vf_note.addAnnotation( 0, annotation );
+							// TODO vertical justify to the minimum height of the line
+						}
+						// TODO multiple lyrics
 						// dots
 						for ( let dot = 0; dot < note.dots; dot++ )
 							vf_note.addDotToAll();
