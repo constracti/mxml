@@ -92,6 +92,9 @@ function parsePitch( pitch ) {
  * part.staves[].clef        String
  * part.staves[].vf_voices   Object
  * part.staves[].vf_voices[] Vex.Flow.Voice
+ * part.staves[].beams       Object
+ * part.staves[].beams[]     Array
+ * part.staves[].beams[][]   Vex.Flow.StaveNote
  * part.measures             int
  * part.vf_drawables         Array
  */
@@ -117,8 +120,9 @@ function build_part_staves( part, options, state ) {
 		if ( !( stave_cnt in part.staves ) )
 			part.staves[stave_cnt] = {
 				vf_stave: null,
-				vf_voices: {},
 				clef: null,
+				vf_voices: {},
+				beams: {},
 			};
 		// shorthand to current stave
 		let stave = part.staves[stave_cnt];
@@ -312,6 +316,14 @@ function parseXML( xml ) {
 							// TODO chords https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-chord.htm
 							vf_note = new Vex.Flow.StaveNote( note );
 						}
+						// beam
+						if ( element.getElementsByTagName( 'beam' ).length ) {
+							// TODO multiple beams
+							let beam = element.getElementsByTagName( 'beam' )[0].getAttribute( 'number' );
+							if ( !( beam in stave.beams ) )
+								stave.beams[beam] = [];
+							stave.beams[beam].push( vf_note );
+						}
 						// dots
 						for ( let dot = 0; dot < note.dots; dot++ )
 							vf_note.addDotToAll();
@@ -334,6 +346,15 @@ function parseXML( xml ) {
 				for ( let voice_id in stave.vf_voices )
 					vf_voices.push( stave.vf_voices[voice_id] );
 		let formatter = new Vex.Flow.Formatter().joinVoices( vf_voices ).format( vf_voices, options.STAVE_WIDTH );
+		let vf_beams = [];
+		for ( let part of parts ) {
+			for ( let stave of part.staves ) {
+				for ( let beam in stave.beams ) {
+					vf_beams.push( new Vex.Flow.Beam( stave.beams[beam] ) );
+					stave.beams = {};
+				}
+			}
+		}
 		vf_voices = [];
 		for ( let part of parts ) {
 			for ( let stave of part.staves ) {
@@ -343,6 +364,9 @@ function parseXML( xml ) {
 				stave.vf_voices = {};
 			}
 		}
+		for ( let vf_beam of vf_beams )
+			vf_beam.setContext( context ).draw();
+		vf_beams = [];
 		state.x += options.STAVE_WIDTH;
 		i++;
 		renderer.resize( line_width, state.y ); // TODO delete line
