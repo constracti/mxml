@@ -26,15 +26,15 @@
  * part.vf_ties[] . . . . . . . . . . . . Vex.Flow.StaveTie
  */
 
-let xmlHttp = new XMLHttpRequest();
-xmlHttp.onreadystatechange = function() {
+let mxmlHttp = new XMLHttpRequest();
+mxmlHttp.onreadystatechange = function() {
 	if ( this.readyState = 4 && this.status === 200 && this.responseXML !== null )
 		mxml( this.responseXML );
 };
-xmlHttp.open( 'GET', 'angelioforoi.xml', true );
-xmlHttp.send();
+mxmlHttp.open( 'GET', 'angelioforoi.xml', true );
+mxmlHttp.send();
 
-function parseKey( xml_key ) {
+function mxmlKey( xml_key ) {
 	let fifths = parseInt( xml_key.getElementsByTagName( 'fifths' )[0].innerHTML );
 	for ( let key in Vex.Flow.keySignature.keySpecs ) {
 		let keyspec = Vex.Flow.keySignature.keySpecs[key];
@@ -45,6 +45,19 @@ function parseKey( xml_key ) {
 	}
 }
 
+function mxmlTime( xml_time ) {
+	let symbol = xml_time.getAttribute( 'symbol' );
+	switch ( symbol ) {
+		case 'common':
+			return 'C';
+		case 'cut':
+			return 'C|';
+	}
+	let beats = xml_time.getElementsByTagName( 'beats' )[0].innerHTML;
+	let beat_type = xml_time.getElementsByTagName( 'beat-type' )[0].innerHTML;
+	return beats + '/' + beat_type;
+}
+
 function mxmlClefType( xml_clef ) {
 	let sign = xml_clef.getElementsByTagName( 'sign' )[0].innerHTML;
 	let line = xml_clef.getElementsByTagName( 'line' );
@@ -52,7 +65,7 @@ function mxmlClefType( xml_clef ) {
 		line = line[0].innerHTML;
 	else
 		line = '';
-	// TODO sign: TAB, jianpu, none
+	// TAB, jianpu, none clefs not present in Vex.Flow.clefProperties.values
 	switch ( sign + line ) {
 		case 'G1':
 			return 'french';
@@ -153,7 +166,7 @@ function getBarLineConnectorType( location, bar_style ) {
 
 function parseDuration( type ) {
 	switch ( type ) {
-		// TODO maxima, long, 512th, 1024th
+		// maxima, long, 512th, 1024th types not present in Vex.Flow.durationToTicks.durations
 		case 'breve':   return '1/2';
 		case 'whole':   return 'w';
 		case 'half':    return 'h';
@@ -339,33 +352,29 @@ function mxml( xml ) {
 						else
 							part.staves = new Array( 1 );
 						build_part_staves( part, options, state );
-						// add clef to staves
-						for ( let xml_clef of element.getElementsByTagName( 'clef' ) ) {
-							let stave_cnt = xml_clef.getAttribute( 'number' );
-							if ( stave_cnt !== null )
-								stave_cnt = parseInt( stave_cnt ) - 1;
-							else
-								stave_cnt = 0;
-							let stave = part.staves[stave_cnt];
-							stave.clef = mxmlClef( xml_clef );
-							mxmlStaveAddClef( stave );
-						}
-						// add key signature to staves
-						if ( element.getElementsByTagName( 'key' ).length ) {
-							part.key = parseKey( element.getElementsByTagName( 'key' )[0] );
-							for ( let stave of part.staves )
-								stave.vf_stave.addKeySignature( part.key );
-						}
-						// add time signature to staves
-						if ( element.getElementsByTagName( 'time' ).length ) {
-							// TODO common time and common time cut
-							part.time = {
-								num_beats: parseInt( element.getElementsByTagName( 'time' )[0].getElementsByTagName( 'beats' )[0].innerHTML ),
-								beat_value: parseInt( element.getElementsByTagName( 'time' )[0].getElementsByTagName( 'beat-type' )[0].innerHTML ),
-							};
-							for ( let stave of part.staves )
-								stave.vf_stave.addTimeSignature( part.time.num_beats + '/' + part.time.beat_value );
-						}
+					}
+					// add clef to staves
+					for ( let xml_clef of element.getElementsByTagName( 'clef' ) ) {
+						let stave_cnt = xml_clef.getAttribute( 'number' );
+						if ( stave_cnt !== null )
+							stave_cnt = parseInt( stave_cnt ) - 1;
+						else
+							stave_cnt = 0;
+						let stave = part.staves[stave_cnt];
+						stave.clef = mxmlClef( xml_clef );
+						mxmlStaveAddClef( stave );
+					}
+					// add key signature to staves
+					if ( element.getElementsByTagName( 'key' ).length ) {
+						part.key = mxmlKey( element.getElementsByTagName( 'key' )[0] );
+						for ( let stave of part.staves )
+							stave.vf_stave.addKeySignature( part.key );
+					}
+					// add time signature to staves
+					if ( element.getElementsByTagName( 'time' ).length ) {
+						part.time = mxmlTime( element.getElementsByTagName( 'time' )[0] );
+						for ( let stave of part.staves )
+							stave.vf_stave.addTimeSignature( part.time );
 					}
 				} else if ( element.tagName === 'barline' ) {
 					let location = element.getAttribute( 'location' );
@@ -548,7 +557,7 @@ function mxml( xml ) {
 							note.text = '';
 						}
 						vf_note = new Vex.Flow.TextNote( note );
-						vf_note.setContext( context ); // TODO where should context be set?
+						vf_note.setContext( context );
 						voice.vf_voice.addTickable( vf_note );
 					}
 				}
