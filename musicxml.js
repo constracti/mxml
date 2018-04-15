@@ -4,7 +4,9 @@
  * part.abbreviation  . . . . . . . . . . String
  * part.staves  . . . . . . . . . . . . . Array
  * part.staves[].vf_stave . . . . . . . . Vex.Flow.Stave
- * part.staves[].clef . . . . . . . . . . String
+ * part.staves[].clef.type  . . . . . . . String
+ * part.staves[].clef.annotation  . . . . String
+ * part.staves[].clef.octave_shift  . . . int
  * part.staves[].voices . . . . . . . . . Object
  * part.staves[].voices[].vf_voice  . . . Vex.Flow.Voice
  * part.staves[].voices[].beam  . . . . . Array
@@ -41,28 +43,80 @@ function parseKey( xml_key ) {
 	}
 }
 
-function parseClef( xml_clef ) {
-	var sign = xml_clef.getElementsByTagName( 'sign' )[0].innerHTML;
-	var line = '';
-	if ( xml_clef.getElementsByTagName( 'line' ).length )
-		line = parseInt( xml_clef.getElementsByTagName( 'line' )[0].innerHTML );
-	var clef_octave_change = '';
-	if ( xml_clef.getElementsByTagName( 'clef-octave-change' ).length )
-		clef_octave_change = parseInt( xml_clef.getElementsByTagName( 'clef-octave-change' )[0].innerHTML );
+function mxmlClefType( xml_clef ) {
+	let sign = xml_clef.getElementsByTagName( 'sign' )[0].innerHTML;
+	let line = xml_clef.getElementsByTagName( 'line' );
+	if ( line.length )
+		line = line[0].innerHTML;
+	else
+		line = '';
 	// TODO sign: TAB, jianpu, none
-	// TODO clef-octave-change
 	switch ( sign + line ) {
-		case 'G1': return 'french';
-		case 'G2': return 'treble';
-		case 'C1': return 'soprano';
-		case 'C2': return 'mezzo-soprano';
-		case 'C3': return 'alto';
-		case 'C4': return 'tenor';
-		case 'C5': return 'baritone-c';
-		case 'F3': return 'baritone-f';
-		case 'F4': return 'bass';
-		case 'F5': return 'subbass';
-		case 'percussion': return 'percussion';
+		case 'G1':
+			return 'french';
+		case 'G2':
+			return 'treble';
+		case 'C1':
+			return 'soprano';
+		case 'C2':
+			return 'mezzo-soprano';
+		case 'C3':
+			return 'alto';
+		case 'C4':
+			return 'tenor';
+		case 'C5':
+			return 'baritone-c';
+		case 'F3':
+			return 'baritone-f';
+		case 'F4':
+			return 'bass';
+		case 'F5':
+			return 'subbass';
+		case 'percussion':
+			return 'percussion';
+	}
+}
+
+function mxmlClefOctaveShift( xml_clef ) {
+	let octave_change = xml_clef.getElementsByTagName( 'clef-octave-change' );
+	if ( octave_change.length )
+		return parseInt( octave_change[0].innerHTML );
+	return 0;
+}
+
+function mxmlClefAnnotation( octave_shift ) {
+	switch ( octave_shift ) {
+		case -2:
+			return '15vb';
+		case -1:
+			return '8vb';
+		case 1:
+			return '8va';
+		case -2:
+			return '15va';
+	}
+}
+
+function mxmlClef( xml_clef ) {
+	let type = mxmlClefType( xml_clef );
+	let octave_shift = mxmlClefOctaveShift( xml_clef );
+	let annotation = mxmlClefAnnotation( octave_shift );
+	return {
+		type: type,
+		annotation: annotation,
+		octave_shift: octave_shift,
+	};
+}
+
+function mxmlStaveAddClef( stave ) {
+	try {
+		// Vex.Flow.Clef.annotations[].sizes[].attachments[] is not complete
+		stave.vf_stave.addClef( stave.clef.type, undefined, stave.clef.annotation );
+	} catch ( error ) {
+		if ( error instanceof TypeError )
+			stave.vf_stave.addClef( stave.clef.type, undefined, undefined );
+		else
+			throw error;
 	}
 }
 
@@ -139,7 +193,7 @@ function build_part_staves( part, options, state ) {
 		if ( !( stave_cnt in part.staves ) )
 			part.staves[stave_cnt] = {
 				vf_stave: null,
-				clef: null,
+				clef: undefined,
 				voices: {},
 			};
 		// shorthand to current stave
@@ -147,8 +201,8 @@ function build_part_staves( part, options, state ) {
 		// create vf_stave
 		stave.vf_stave = new Vex.Flow.Stave( state.x, state.y, options.STAVE_WIDTH, stave_options );
 		// add clef and key signature to the first stave of each line
-		if ( state.x === options.LINE_INDENT && stave.clef !== null )
-			stave.vf_stave.addClef( stave.clef );
+		if ( state.x === options.LINE_INDENT && stave.clef !== undefined )
+			mxmlStaveAddClef( stave );
 		if ( state.x === options.LINE_INDENT && part.key !== null )
 			stave.vf_stave.addKeySignature( part.key );
 		// move state.y to the bottom of the current stave
@@ -289,8 +343,8 @@ function parseXML( xml ) {
 							else
 								stave_cnt = 0;
 							let stave = part.staves[stave_cnt];
-							stave.clef = parseClef( xml_clef );
-							stave.vf_stave.addClef( stave.clef );
+							stave.clef = mxmlClef( xml_clef );
+							mxmlStaveAddClef( stave );
 						}
 						// add key signature to staves
 						if ( element.getElementsByTagName( 'key' ).length ) {
@@ -401,7 +455,8 @@ function parseXML( xml ) {
 						vf_note = new Vex.Flow.StaveNote( note );
 						// TODO center align whole measure rests
 					} else {
-						note.clef = stave.clef;
+						note.clef = stave.clef.type;
+						note.octave_shift = stave.clef.octave_shift;
 						note.keys = [];
 						let sibling = element;
 						do {
