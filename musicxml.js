@@ -21,13 +21,19 @@
  * part.vf_ties[]. . . . . . . . . . . . Vex.Flow.StaveTie
  */
 
+let xhttp = new XMLHttpRequest();
+xhttp.onreadystatechange = function() {
+	if ( this.readyState = 4 && this.status === 200 && this.responseXML !== null )
+		parseXML( this.responseXML );
+};
+xhttp.open( 'GET', 'angelioforoi.xml', true );
+xhttp.send();
+
 function parseKey( xml_key ) {
-	var fifths = parseInt( xml_key.getElementsByTagName( 'fifths' )[0].innerHTML );
-	for ( var key in Vex.Flow.keySignature.keySpecs ) {
+	let fifths = parseInt( xml_key.getElementsByTagName( 'fifths' )[0].innerHTML );
+	for ( let key in Vex.Flow.keySignature.keySpecs ) {
 		let keyspec = Vex.Flow.keySignature.keySpecs[key];
-		if ( typeof keyspec !== 'object' || !( 'acc' in keyspec ) || !( 'num' in keyspec ) )
-			continue;
-		if ( fifths >= 0 && keyspec.acc === '#' && keyspec.num === fifths )
+		if ( fifths >= 0 && keyspec.acc !== 'b' && keyspec.num === fifths )
 			return key;
 		if ( fifths < 0 && keyspec.acc === 'b' && -keyspec.num === fifths )
 			return key;
@@ -41,7 +47,7 @@ function parseClef( xml_clef ) {
 		line = parseInt( xml_clef.getElementsByTagName( 'line' )[0].innerHTML );
 	var clef_octave_change = '';
 	if ( xml_clef.getElementsByTagName( 'clef-octave-change' ).length )
-		clef_octave_change = parseInt( clef.getElementsByTagName( 'clef-octave-change' )[0].innerHTML );
+		clef_octave_change = parseInt( xml_clef.getElementsByTagName( 'clef-octave-change' )[0].innerHTML );
 	// TODO sign: TAB, jianpu, none
 	// TODO clef-octave-change
 	switch ( sign + line ) {
@@ -170,14 +176,6 @@ function build_part_staves( part, options, state ) {
 	}
 }
 
-let xhttp = new XMLHttpRequest();
-xhttp.onreadystatechange = function() {
-	if ( this.readyState = 4 && this.status === 200 && this.responseXML !== null )
-		parseXML( this.responseXML );
-};
-xhttp.open( 'GET', 'agioi.xml', true );
-xhttp.send();
-
 function parseXML( xml ) {
 	let renderer = new Vex.Flow.Renderer( document.getElementById( 'xml' ), Vex.Flow.Renderer.Backends.SVG );
 	var context = renderer.getContext();
@@ -247,12 +245,12 @@ function parseXML( xml ) {
 		// loop each part
 		for ( state.part_cnt = 0; state.part_cnt < xml_parts.length; state.part_cnt++ ) {
 			// shorthand to current part
-			var part = parts[state.part_cnt];
+			let part = parts[state.part_cnt];
 			// build part staves in case they are initialized
 			if ( part.staves.length )
 				build_part_staves( part, options, state );
 			// loop each measure element
-			for ( var element of xml_parts[state.part_cnt].getElementsByTagName( 'measure' )[i].children ) {
+			for ( let element of xml_parts[state.part_cnt].getElementsByTagName( 'measure' )[i].children ) {
 				let stave, voice, note = {}, vf_note;
 				switch ( element.tagName ) {
 					case 'attributes':
