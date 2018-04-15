@@ -10,6 +10,8 @@
  * part.staves[].voices[].beams  . . . . Object
  * part.staves[].voices[].beams[]  . . . Array
  * part.staves[].voices[].beams[][]  . . Vex.Flow.StaveNote
+ * part.staves[].voices[].vf_beams . . . Array
+ * part.staves[].voices[].vf_beams[] . . Vex.Flow.Beam
  * part.staves[].voices[].ties . . . . . Object
  * part.staves[].voices[].ties[].vf_note Vex.Flow.StaveNote
  * part.staves[].voices[].ties[].line  . int
@@ -107,7 +109,7 @@ function parseDuration( type ) {
 		case '64th':    return '64';
 		case '128th':   return '128';
 		case '256th':   return '256';
-		default:        return 'h';
+		default:        return 'w';
 	}
 }
 
@@ -322,15 +324,16 @@ function parseXML( xml ) {
 							stave.voices[voice] = {
 								vf_voice: null,
 								beams: {},
+								vf_beams: [],
 								ties: {},
 							};
 						voice = stave.voices[voice];
 						if ( voice.vf_voice === null )
-							voice.vf_voice = new Vex.Flow.Voice( part.time );
+							voice.vf_voice = new Vex.Flow.Voice( part.time ).setStrict( false );
 						note.text = element.getElementsByTagName( 'root' )[0].getElementsByTagName( 'root-step' )[0].innerHTML;
 						note.duration = parseDuration(); // TODO harmony duration
 						vf_note = new Vex.Flow.TextNote( note );
-						vf_note.setContext( context );
+						vf_note.setContext( context ); // TODO where should context be set?
 						voice.vf_voice.addTickable( vf_note );
 						break;
 					case 'note':
@@ -349,6 +352,7 @@ function parseXML( xml ) {
 							stave.voices[voice] = {
 								vf_voice: null,
 								beams: {},
+								vf_beams: [],
 								ties: {},
 							};
 						voice = stave.voices[voice];
@@ -388,12 +392,24 @@ function parseXML( xml ) {
 							vf_note = new Vex.Flow.StaveNote( note );
 						}
 						// beam
-						if ( element.getElementsByTagName( 'beam' ).length ) {
-							// TODO multiple beams
-							let beam = element.getElementsByTagName( 'beam' )[0].getAttribute( 'number' );
-							if ( !( beam in voice.beams ) )
-								voice.beams[beam] = [];
-							voice.beams[beam].push( vf_note );
+						for ( let xml_beam of element.getElementsByTagName( 'beam' ) ) {
+							let number = xml_beam.getAttribute( 'number' );
+							if ( number === null )
+								number = '1';
+							let value = xml_beam.innerHTML;
+							switch ( value ) {
+								case 'begin':
+								case 'continue':
+									if ( !( number in voice.beams ) )
+										voice.beams[number] = [];
+									voice.beams[number].push( vf_note );
+									break;
+								case 'end':
+									voice.beams[number].push( vf_note );
+									voice.vf_beams.push( new Vex.Flow.Beam( voice.beams[number] ) );
+									voice.beams[number] = [];
+									break;
+							}
 						}
 						// tie
 						if ( !element.getElementsByTagName( 'rest' ).length ) {
@@ -483,21 +499,8 @@ function parseXML( xml ) {
 				}
 			}
 		}
-		let formatter = new Vex.Flow.Formatter().joinVoices( vf_voices ).format( vf_voices, options.STAVE_WIDTH );
+		let formatter = new Vex.Flow.Formatter().joinVoices( vf_voices ).format( vf_voices, options.STAVE_WIDTH * .9 );
 		vf_voices = [];
-		let vf_beams = [];
-		for ( let part of parts ) {
-			for ( let stave of part.staves ) {
-				for ( let voice_id in stave.voices ) {
-					let voice = stave.voices[voice_id];
-					for ( let beam_id in voice.beams ) {
-						let beam = voice.beams[beam_id];
-						vf_beams.push( new Vex.Flow.Beam( beam ) );
-						voice.beams = {};
-					}
-				}
-			}
-		}
 		for ( let part of parts ) {
 			for ( let stave of part.staves ) {
 				for ( let voice_id in stave.voices ) {
@@ -510,9 +513,17 @@ function parseXML( xml ) {
 				stave.vf_stave = null;
 			}
 		}
-		for ( let vf_beam of vf_beams )
-			vf_beam.setContext( context ).draw();
-		vf_beams = [];
+		for ( let part of parts ) {
+			for ( let stave of part.staves ) {
+				for ( let voice_id in stave.voices ) {
+					let voice = stave.voices[voice_id];
+					for ( let vf_beam of voice.vf_beams )
+						vf_beam.setContext( context ).draw();
+					voice.vf_beams = [];
+					voice.beams = {};
+				}
+			}
+		}
 		for ( let part of parts ) {
 			for ( let vf_tie of part.vf_ties )
 				vf_tie.setContext( context ).draw();
