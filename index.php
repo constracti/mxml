@@ -9,6 +9,8 @@
 	<body>
 		<div id="xml"></div>
 		<script>
+var mxml_file = '<?= $_GET['mxml'] ?>.xml';
+
 <?php
 echo file_get_contents( 'musicxml.js' );
 ?>

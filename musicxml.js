@@ -31,7 +31,7 @@ mxmlHttp.onreadystatechange = function() {
 	if ( this.readyState = 4 && this.status === 200 && this.responseXML !== null )
 		mxml( this.responseXML );
 };
-mxmlHttp.open( 'GET', 'alas-tis-gis.xml', true );
+mxmlHttp.open( 'GET', mxml_file, true );
 mxmlHttp.send();
 
 function mxmlKey( xml_key ) {
