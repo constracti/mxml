@@ -31,7 +31,7 @@ mxmlHttp.onreadystatechange = function() {
 	if ( this.readyState = 4 && this.status === 200 && this.responseXML !== null )
 		mxml( this.responseXML );
 };
-mxmlHttp.open( 'GET', 'agioi.xml', true );
+mxmlHttp.open( 'GET', 'alas-tis-gis.xml', true );
 mxmlHttp.send();
 
 function mxmlKey( xml_key ) {
@@ -279,6 +279,42 @@ function build_beam( element, voice, vf_note ) {
 	}
 }
 
+function mxmlHarmony( xml_harmony ) {
+	let harmony = '';
+	let xml_root = xml_harmony.getElementsByTagName( 'root' )[0];
+	let root_step = xml_root.getElementsByTagName( 'root-step' )[0].innerHTML;
+	harmony = root_step;
+	let root_alter = xml_root.getElementsByTagName( 'root-alter' );
+	if ( root_alter.length )
+		root_alter = parseInt( root_alter[0].innerHTML );
+	else
+		root_alter = 0;
+	if ( root_alter === 0 )
+		;
+	else if ( root_alter === 1 )
+		harmony += '#';
+	else if ( root_alter === -1 )
+		harmony += 'b';
+	let kind = xml_harmony.getElementsByTagName( 'kind' )[0].innerHTML;
+	let seventh_index = kind.lastIndexOf( '-seventh' );
+	if ( seventh_index !== -1 )
+		kind = kind.substr( 0, seventh_index );
+	if ( kind === 'major' )
+		;
+	else if ( kind === 'minor' )
+		harmony += 'm';
+	else if ( kind === 'augmented' )
+		harmony += 'aug';
+	else if ( kind === 'diminished' )
+		harmony += 'dim';
+	else if ( kind === 'half-diminished' )
+		;
+	if ( seventh_index !== -1 )
+		harmony += '7';
+	// TODO beautify output
+	return harmony;
+}
+
 function mxml( xml ) {
 	let renderer = new Vex.Flow.Renderer( document.getElementById( 'xml' ), Vex.Flow.Renderer.Backends.SVG );
 	let context = renderer.getContext();
@@ -413,7 +449,7 @@ function mxml( xml ) {
 					}
 				} else if ( element.tagName === 'harmony' ) {
 					let stave = part.staves[0];
-					stave.harmony = element.getElementsByTagName( 'root' )[0].getElementsByTagName( 'root-step' )[0].innerHTML;
+					stave.harmony = mxmlHarmony( element );
 				} else if ( element.tagName === 'note' ) {
 					if ( element.getElementsByTagName( 'chord' ).length )
 						continue;
