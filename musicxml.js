@@ -31,7 +31,7 @@ mxmlHttp.onreadystatechange = function() {
 	if ( this.readyState = 4 && this.status === 200 && this.responseXML !== null )
 		mxml( this.responseXML );
 };
-mxmlHttp.open( 'GET', 'angelioforoi.xml', true );
+mxmlHttp.open( 'GET', 'agioi.xml', true );
 mxmlHttp.send();
 
 function mxmlKey( xml_key ) {
@@ -164,20 +164,31 @@ function getBarLineConnectorType( location, bar_style ) {
 			return Vex.Flow.StaveConnector.type.BOLD_DOUBLE_RIGHT;
 }
 
-function parseDuration( type ) {
+function mxmlDuration( type ) {
 	switch ( type ) {
 		// maxima, long, 512th, 1024th types not present in Vex.Flow.durationToTicks.durations
-		case 'breve':   return '1/2';
-		case 'whole':   return 'w';
-		case 'half':    return 'h';
-		case 'quarter': return 'q';
-		case 'eighth':  return '8';
-		case '16th':    return '16';
-		case '32th':    return '32';
-		case '64th':    return '64';
-		case '128th':   return '128';
-		case '256th':   return '256';
-		default:        return 'w';
+		case 'breve':
+			return '1/2';
+		case 'whole':
+			return 'w';
+		case 'half':
+			return 'h';
+		case 'quarter':
+			return 'q';
+		case 'eighth':
+			return '8';
+		case '16th':
+			return '16';
+		case '32th':
+			return '32';
+		case '64th':
+			return '64';
+		case '128th':
+			return '128';
+		case '256th':
+			return '256';
+		default:
+			return 'w';
 	}
 }
 
@@ -318,7 +329,7 @@ function mxml( xml ) {
 	var i = 0;
 	var more = true;
 	while ( true ) {
-		// break if a part run out of measures
+		// break if a part runs out of measures
 		for ( let part of parts ) {
 			if ( i >= part.measures ) {
 				more = false;
@@ -344,6 +355,7 @@ function mxml( xml ) {
 				build_part_staves( part, options, state );
 			// loop each measure element
 			for ( let element of xml_parts[state.part_cnt].getElementsByTagName( 'measure' )[i].children ) {
+				// TODO direction: metronome and dynamics
 				if ( element.tagName === 'attributes' ) {
 					// build part staves in case the are not initialized
 					if ( !part.staves.length ) {
@@ -396,7 +408,6 @@ function mxml( xml ) {
 								part.getStave(0).vf_stave.setBegBarType( type );
 								break;
 							case 'middle':
-								// TODO middle
 								break;
 						}
 					}
@@ -430,10 +441,14 @@ function mxml( xml ) {
 					let note = {};
 					let vf_note;
 					// duration
-					if ( element.getElementsByTagName( 'type' ).length )
-						note.duration = parseDuration( element.getElementsByTagName( 'type' )[0].innerHTML );
-					else
-						note.duration = parseDuration();
+					if ( element.getElementsByTagName( 'type' ).length ) {
+						note.duration = mxmlDuration( element.getElementsByTagName( 'type' )[0].innerHTML );
+						note.align_center = false;
+					} else {
+						note.duration = mxmlDuration();
+						note.align_center = true;
+						voice.vf_voice.setStrict( false );
+					}
 					// dots
 					note.dots = element.getElementsByTagName( 'dot' ).length;
 					// stem
@@ -444,13 +459,12 @@ function mxml( xml ) {
 						else if ( stem === 'down' )
 							note.stem_direction = Vex.Flow.Stem.DOWN;
 						else if ( stem === 'double' )
-							; // TODO double stem
+							;
 					}
 					if ( element.getElementsByTagName( 'rest' ).length ) {
 						note.duration += 'r';
 						note.keys = [ 'r/4' ];
 						vf_note = new Vex.Flow.StaveNote( note );
-						// TODO center align whole measure rests
 					} else {
 						note.clef = stave.clef.type;
 						note.octave_shift = stave.clef.octave_shift;
@@ -546,6 +560,8 @@ function mxml( xml ) {
 						voice = stave.voices[voice];
 						if ( voice.vf_voice === null )
 							voice.vf_voice = new Vex.Flow.Voice( part.time );
+						if ( note.align_center )
+							voice.vf_voice.setStrict( false );
 						note = {
 							duration: note.duration,
 							dots: note.dots,
@@ -563,6 +579,7 @@ function mxml( xml ) {
 				}
 			}
 		}
+		renderer.resize( line_width, state.y ); // TODO delete line
 		for ( let part of parts ) {
 			for ( let stave of part.staves )
 				stave.vf_stave.setContext( context ).draw();
@@ -570,18 +587,21 @@ function mxml( xml ) {
 				vf_connector.setContext( context ).draw();
 			part.vf_connectors = [];
 		}
-		let vf_voices = [];
-		for ( let part of parts ) {
-			for ( let stave of part.staves ) {
-				for ( let voice_id in stave.voices ) {
-					let voice = stave.voices[voice_id];
-					if ( voice.vf_voice !== null )
-						vf_voices.push( voice.vf_voice );
+		for ( let strict of [ true, false ] ) {
+			let vf_voices = [];
+			for ( let part of parts ) {
+				for ( let stave of part.staves ) {
+					for ( let voice_id in stave.voices ) {
+						let voice = stave.voices[voice_id];
+						if ( voice.vf_voice !== null && ( voice.vf_voice.mode === Vex.Flow.Voice.Mode.STRICT ) === strict )
+							vf_voices.push( voice.vf_voice );
+					}
 				}
 			}
+			if ( vf_voices.length )
+				new Vex.Flow.Formatter().joinVoices( vf_voices ).format( vf_voices, options.STAVE_WIDTH ); // TODO available width
+			vf_voices = [];
 		}
-		let formatter = new Vex.Flow.Formatter().joinVoices( vf_voices ).format( vf_voices, options.STAVE_WIDTH * .8 );
-		vf_voices = [];
 		for ( let part of parts ) {
 			for ( let stave of part.staves ) {
 				for ( let voice_id in stave.voices ) {
@@ -604,7 +624,6 @@ function mxml( xml ) {
 		}
 		state.x += options.STAVE_WIDTH;
 		i++;
-		renderer.resize( line_width, state.y ); // TODO delete line
 	}
 	
 	renderer.resize( line_width, state.y + options.LINE_MARGIN );
