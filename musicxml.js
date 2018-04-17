@@ -2,6 +2,8 @@
  * part.id  . . . . . . . . . . . . . . . String
  * part.name  . . . . . . . . . . . . . . String
  * part.abbreviation  . . . . . . . . . . String
+ * part.key . . . . . . . . . . . . . . . String
+ * part.time  . . . . . . . . . . . . . . String
  * part.staves  . . . . . . . . . . . . . Array
  * part.staves[].vf_stave . . . . . . . . Vex.Flow.Stave
  * part.staves[].clef.type  . . . . . . . String
@@ -192,10 +194,33 @@ function mxmlDuration( type ) {
 	}
 }
 
-function parsePitch( pitch ) {
-	var step = pitch.getElementsByTagName( 'step' )[0].innerHTML;
-	var octave = parseInt( pitch.getElementsByTagName( 'octave' )[0].innerHTML );
-	return step + '/' + octave;
+function mxmlPitch( xml_pitch ) {
+	let alter = xml_pitch.getElementsByTagName( 'alter' );
+	if ( alter.length )
+		alter = parseInt( alter[0].innerHTML );
+	else
+		alter = 0;
+	return {
+		step: xml_pitch.getElementsByTagName( 'step' )[0].innerHTML.toLowerCase(),
+		alter: alter,
+		octave: parseInt( xml_pitch.getElementsByTagName( 'octave' )[0].innerHTML ),
+	};
+}
+
+function mxmlAccidentalType( xml_accidental ) {
+	// parentheses attribute is ignored
+	switch ( xml_accidental.innerHTML ) {
+		case 'double-flat':
+			return 'bb';
+		case 'flat':
+			return 'b';
+		case 'natural':
+			return 'n';
+		case 'sharp':
+			return '#';
+		case 'double-sharp':
+			return '##';
+	}
 }
 
 function build_part_staves( part, options, state ) {
@@ -505,22 +530,37 @@ function mxml( xml ) {
 						note.clef = stave.clef.type;
 						note.octave_shift = stave.clef.octave_shift;
 						note.keys = [];
+						note.accidentals = [];
 						let sibling = element;
+						let index = 0;
 						do {
-							note.keys.push( parsePitch( sibling.getElementsByTagName( 'pitch' )[0] ) );
+							let pitch = mxmlPitch( sibling.getElementsByTagName( 'pitch' )[0] );
+							note.keys.push( pitch.step + '/' + pitch.octave );
+							let xml_accidentals = sibling.getElementsByTagName( 'accidental' );
+							if ( xml_accidentals.length )
+								note.accidentals.push( {
+									index: index,
+									type: mxmlAccidentalType( xml_accidentals[0] ),
+								} );
 							sibling = sibling.nextElementSibling;
+							index++;
 						} while ( sibling !== null && sibling.getElementsByTagName( 'chord' ).length );
-						// TODO accidentals https://usermanuals.musicxml.com/MusicXML/Content/EL-MusicXML-alter.htm
 						vf_note = new Vex.Flow.StaveNote( note );
+						for ( let accidental of note.accidentals )
+							vf_note.addAccidental( accidental.index, new Vex.Flow.Accidental( accidental.type ) );
+						note.accidentals = undefined;
 					}
 					// beam
 					build_beam( element, voice, vf_note );
 					// tie
 					if ( !element.getElementsByTagName( 'rest' ).length ) {
 						let sibling = element;
-						let pos = 0;
+						let index = 0;
 						do {
-							let pitch = parsePitch( sibling.getElementsByTagName( 'pitch' )[0] ); // TODO absolute pitch
+							let pitch = mxmlPitch( sibling.getElementsByTagName( 'pitch' )[0] );
+							pitch = Vex.Flow.Music.NUM_TONES * pitch.octave +
+								Vex.Flow.Music.root_values[Vex.Flow.Music.root_indices[pitch.step]] +
+								pitch.alter;
 							for ( let tie of sibling.getElementsByTagName( 'tie' ) ) {
 								switch ( tie.getAttribute( 'type' ) ) {
 									case 'start':
@@ -528,7 +568,7 @@ function mxml( xml ) {
 											voice.ties[pitch] = {
 												vf_note: vf_note,
 												line: state.line_cnt,
-												index: pos,
+												index: index,
 											};
 										break;
 									case 'stop':
@@ -537,7 +577,7 @@ function mxml( xml ) {
 										let tie_end = {
 											vf_note: vf_note,
 											line: state.line_cnt,
-											index: pos,
+											index: index,
 										};
 										if ( tie_beg.line === tie_end.line ) {
 											part.vf_ties.push( new Vex.Flow.StaveTie( {
@@ -560,7 +600,7 @@ function mxml( xml ) {
 								}
 							}
 							sibling = sibling.nextElementSibling;
-							pos++;
+							index++;
 						} while ( sibling !== null && sibling.getElementsByTagName( 'chord' ).length );
 					}
 					// lyric
