@@ -56,7 +56,7 @@ function mxmlPartStaves( part, options, state ) {
 		// create stave if it does not exist
 		if ( !( stave_cnt in part.staves ) )
 			part.staves[stave_cnt] = {
-				vf_stave: null,
+				vf_stave: undefined,
 				clef: undefined,
 				voices: {},
 				harmony: undefined,
@@ -68,7 +68,7 @@ function mxmlPartStaves( part, options, state ) {
 		// add clef and key signature to the first stave of each line
 		if ( state.x === options.LINE_INDENT && stave.clef !== undefined )
 			mxmlStaveAddClef( stave );
-		if ( state.x === options.LINE_INDENT && part.key !== null )
+		if ( state.x === options.LINE_INDENT && part.key !== undefined )
 			stave.vf_stave.addKeySignature( part.key );
 		// move state.y to the bottom of the current stave
 		state.y += options.STAVE_HEIGHT;
@@ -426,8 +426,8 @@ function mxml( xml ) {
 			id: xml_part.id,
 			name: part_list.getElementsByTagName( 'score-part' )[xml_part.id].getElementsByTagName( 'part-name' )[0].innerHTML,
 			abbreviation: part_list.getElementsByTagName( 'score-part' )[xml_part.id].getElementsByTagName( 'part-abbreviation' )[0].innerHTML,
-			key: null,
-			time: null,
+			key: undefined,
+			time: undefined,
 			staves: [],
 			measures: xml_part.getElementsByTagName( 'measure' ).length,
 			getStave: function( index ) {
@@ -552,12 +552,12 @@ function mxml( xml ) {
 					if ( !( voice in stave.voices ) )
 						stave.voices[voice] = {
 							id: voice,
-							vf_voice: null,
+							vf_voice: undefined,
 							beam: [],
 							ties: {},
 						};
 					voice = stave.voices[voice];
-					if ( voice.vf_voice === null )
+					if ( voice.vf_voice === undefined )
 						voice.vf_voice = new Vex.Flow.Voice( part.time );
 					// note struct and object
 					let note = {};
@@ -640,12 +640,12 @@ function mxml( xml ) {
 						if ( !( voice in stave.voices ) )
 							stave.voices[voice] = {
 								id: 'harmony',
-								vf_voice: null,
+								vf_voice: undefined,
 								beam: [],
 								ties: {},
 							};
 						voice = stave.voices[voice];
-						if ( voice.vf_voice === null )
+						if ( voice.vf_voice === undefined )
 							voice.vf_voice = new Vex.Flow.Voice( part.time );
 						if ( note.align_center )
 							voice.vf_voice.setStrict( false );
@@ -680,7 +680,7 @@ function mxml( xml ) {
 				for ( let stave of part.staves ) {
 					for ( let voice_id in stave.voices ) {
 						let voice = stave.voices[voice_id];
-						if ( voice.vf_voice !== null && ( voice.vf_voice.mode === Vex.Flow.Voice.Mode.STRICT ) === strict )
+						if ( voice.vf_voice !== undefined && ( voice.vf_voice.mode === Vex.Flow.Voice.Mode.STRICT ) === strict )
 							vf_voices.push( voice.vf_voice );
 					}
 				}
@@ -693,12 +693,12 @@ function mxml( xml ) {
 			for ( let stave of part.staves ) {
 				for ( let voice_id in stave.voices ) {
 					let voice = stave.voices[voice_id];
-					if ( voice.vf_voice !== null ) {
+					if ( voice.vf_voice !== undefined ) {
 						voice.vf_voice.draw( context, stave.vf_stave );
-						voice.vf_voice = null;
+						voice.vf_voice = undefined;
 					}
 				}
-				stave.vf_stave = null;
+				stave.vf_stave = undefined;
 			}
 		}
 		for ( let part of parts ) {
