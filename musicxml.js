@@ -408,7 +408,7 @@ function mxml( xml ) {
 
 	var options = {
 		LINE_INDENT:  200,
-		STAVE_WIDTH:  250,
+		STAVE_WIDTH:  320,
 		STAVE_HEIGHT: 100,
 		STAVE_MARGIN: 0,
 		PART_MARGIN:  20,
@@ -686,7 +686,7 @@ function mxml( xml ) {
 				}
 			}
 			if ( vf_voices.length )
-				new Vex.Flow.Formatter().joinVoices( vf_voices ).format( vf_voices, options.STAVE_WIDTH ); // TODO available width
+				new Vex.Flow.Formatter().joinVoices( vf_voices ).formatToStave( vf_voices, parts[0].staves[0].vf_stave );
 			vf_voices = [];
 		}
 		for ( let part of parts ) {
