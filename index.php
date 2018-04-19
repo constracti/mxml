@@ -7,13 +7,19 @@
 		<script src="https://unpkg.com/vexflow/releases/vexflow-min.js"></script>
 	</head>
 	<body>
-		<div id="xml"></div>
+		<div id="container" data-mxml-url="<?= $_GET['mxml'] ?>.xml" data-mxml-renderer="renderer">
+			<div id="options"></div>
+			<div id="renderer"></div>
+		</div>
 		<script>
-var mxml_file = '<?= $_GET['mxml'] ?>.xml';
-
 <?php
 echo file_get_contents( 'musicxml.js' );
 ?>
+		</script>
+		<script>
+mxmlLoad( 'container', function() {
+	mxmlRender( 'container' );
+} );
 		</script>
 	</body>
 </html>

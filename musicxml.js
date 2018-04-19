@@ -1,5 +1,6 @@
 /*
  * part.id  . . . . . . . . . . . . . . . String
+ * part.xml . . . . . . . . . . . . . . . XMLDocument
  * part.name  . . . . . . . . . . . . . . String
  * part.abbreviation  . . . . . . . . . . String
  * part.key . . . . . . . . . . . . . . . String
@@ -28,13 +29,351 @@
  * part.vf_ties[] . . . . . . . . . . . . Vex.Flow.StaveTie
  */
 
-let mxmlHttp = new XMLHttpRequest();
-mxmlHttp.onreadystatechange = function() {
-	if ( this.readyState = 4 && this.status === 200 && this.responseXML !== null )
-		mxml( this.responseXML );
-};
-mxmlHttp.open( 'GET', mxml_file, true );
-mxmlHttp.send();
+mxmlResponses = {};
+
+function mxmlLoad( containerId, onLoad ) {
+	let container = document.getElementById( containerId );
+	let xhttp = new XMLHttpRequest();
+	xhttp.onreadystatechange = function() {
+		if ( this.readyState === 4 && this.status === 200 ) {
+			mxmlResponses[containerId] = this.responseXML;
+			onLoad();
+		}
+	};
+	xhttp.open( 'GET', container.dataset.mxmlUrl, true );
+	xhttp.send();
+}
+
+function mxmlRender( containerId, options = {} ) {
+	var xml = mxmlResponses[containerId];
+	var container = document.getElementById( containerId );
+	var renderer = container.dataset.mxmlRenderer;
+	if ( renderer !== undefined )
+		renderer = document.getElementById( renderer );
+	else
+		renderer = container;
+	renderer.innerHTML = '';
+	if ( !( 'LINE_WIDTH' in options ) )
+		options.LINE_WIDTH = renderer.offsetWidth - 20;
+	renderer = new Vex.Flow.Renderer( renderer.id, Vex.Flow.Renderer.Backends.SVG );
+	var context = renderer.getContext();
+
+	if ( !( 'STAVE_WIDTH' in options ) )
+		options.STAVE_WIDTH = 240;
+	if ( !( 'STAVE_HEIGHT' in options ) )
+		options.STAVE_HEIGHT = 100;
+	if ( !( 'STAVE_MARGIN' in options ) )
+		options.STAVE_MARGIN = 0;
+	if ( !( 'PART_MARGIN' in options ) )
+		options.PART_MARGIN = 20;
+	if ( !( 'LINE_MARGIN' in options ) )
+		options.LINE_MARGIN = 40;
+	if ( !( 'visibleParts' in options ) )
+		options.visibleParts = undefined;
+	if ( !( 'displayPartNames' in options ) )
+		options.displayPartNames = true;
+
+	var score_partwise = xml.getElementsByTagName( 'score-partwise' )[0];
+	var part_list = score_partwise.getElementsByTagName( 'part-list' )[0];
+	var score_parts = part_list.getElementsByTagName( 'score-part' );
+	// TODO part-group group-symbol (bracket)
+
+	// initialize parts array
+	var parts = [];
+	var measures = 0;
+	for ( let xml_part of score_partwise.getElementsByTagName( 'part' ) ) {
+		if ( options.visibleParts !== undefined && options.visibleParts.indexOf( xml_part.id ) === -1 )
+			continue;
+		let part = {
+			id: xml_part.id,
+			xml: xml_part,
+			key: null,
+			time: null,
+			staves: [],
+			measures: xml_part.getElementsByTagName( 'measure' ).length,
+			getStave: function( index ) {
+				if ( index < 0 )
+					index += this.staves.length;
+				return this.staves[index];
+			},
+			vf_connectors: [],
+			vf_beams: [],
+			vf_ties: [],
+		};
+		if ( options.displayPartNames ) {
+			part.name = score_parts[part.id].getElementsByTagName( 'part-name' )[0].innerHTML;
+			part.abbreviation = score_parts[part.id].getElementsByTagName( 'part-abbreviation' )[0].innerHTML;
+		}
+		if ( measures === 0 )
+			measures = part.measures;
+		else if ( part.measures < measures )
+			measures = part.measures;
+		parts.push( part );
+	}
+	if ( !( 'LINE_INDENT' in options ) )
+		options.LINE_INDENT = options.displayPartNames ? 200 : 20;
+
+	var state = {
+		x: options.LINE_INDENT,
+		y: 20,
+		top: 20,
+		line_cnt: 0,
+		part_cnt: 0,
+	};
+
+	for ( let i = 0; i < measures; i++ ) {
+		// calculate horizontal position
+		if ( state.x > options.LINE_INDENT && state.x + options.STAVE_WIDTH > options.LINE_WIDTH ) {
+			state.line_cnt++;
+			state.x = options.LINE_INDENT;
+			state.top = state.y;
+		} else {
+			state.y = state.top;
+		}
+		// loop each part
+		for ( state.part_cnt = 0; state.part_cnt < parts.length; state.part_cnt++ ) {
+			// shorthand to current part
+			let part = parts[state.part_cnt];
+			// build part staves in case they are initialized
+			if ( part.staves.length )
+				mxmlPartStaves( part, options, state );
+			// loop each measure element
+			for ( let element of part.xml.getElementsByTagName( 'measure' )[i].children ) {
+				// TODO direction: metronome and dynamics
+				if ( element.tagName === 'attributes' ) {
+					// build part staves in case they are not initialized
+					if ( !part.staves.length ) {
+						if ( element.getElementsByTagName( 'staves' ).length )
+							part.staves = new Array( parseInt( element.getElementsByTagName( 'staves' )[0].innerHTML ) );
+						else
+							part.staves = new Array( 1 );
+						mxmlPartStaves( part, options, state );
+					}
+					// add clef to staves
+					for ( let xml_clef of element.getElementsByTagName( 'clef' ) ) {
+						let stave_cnt = xml_clef.getAttribute( 'number' );
+						if ( stave_cnt !== null )
+							stave_cnt = parseInt( stave_cnt ) - 1;
+						else
+							stave_cnt = 0;
+						let stave = part.staves[stave_cnt];
+						stave.clef = mxmlClef( xml_clef );
+						mxmlStaveAddClef( stave );
+					}
+					// add key signature to staves
+					if ( element.getElementsByTagName( 'key' ).length ) {
+						part.key = mxmlKey( element.getElementsByTagName( 'key' )[0] );
+						for ( let stave of part.staves )
+							stave.vf_stave.addKeySignature( part.key );
+					}
+					// add time signature to staves
+					if ( element.getElementsByTagName( 'time' ).length ) {
+						part.time = mxmlTime( element.getElementsByTagName( 'time' )[0] );
+						for ( let stave of part.staves )
+							stave.vf_stave.addTimeSignature( part.time );
+					}
+				} else if ( element.tagName === 'barline' ) {
+					let location = element.getAttribute( 'location' );
+					if ( location === null )
+						location = 'right';
+					let bar_style = element.getElementsByTagName( 'bar-style' )[0].innerHTML;
+					if ( part.staves.length > 1 ) {
+						let type = mxmlBarLineConnectorType( location, bar_style );
+						let connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
+						connector.setType( type );
+						part.vf_connectors.push( connector );
+					} else if ( part.staves.length === 1 ) {
+						let type = mxmlBarType( bar_style );
+						switch ( location ) {
+							case 'right':
+								part.getStave(0).vf_stave.setEndBarType( type );
+								break;
+							case 'left':
+								part.getStave(0).vf_stave.setBegBarType( type );
+								break;
+							case 'middle':
+								break;
+						}
+					}
+				} else if ( element.tagName === 'harmony' ) {
+					let stave = part.staves[0];
+					stave.harmony = mxmlHarmony( element );
+				} else if ( element.tagName === 'note' ) {
+					if ( element.getElementsByTagName( 'chord' ).length )
+						continue;
+					// stave
+					let stave_cnt = element.getElementsByTagName( 'staff' );
+					if ( stave_cnt.length )
+						stave_cnt = parseInt( stave_cnt[0].innerHTML ) - 1;
+					else
+						stave_cnt = 0;
+					let stave = part.staves[stave_cnt];
+					// voice
+					let voice = element.getElementsByTagName( 'voice' )[0].innerHTML;
+					if ( !( voice in stave.voices ) )
+						stave.voices[voice] = {
+							id: voice,
+							vf_voice: null,
+							beam: [],
+							ties: {},
+						};
+					voice = stave.voices[voice];
+					if ( voice.vf_voice === null )
+						voice.vf_voice = new Vex.Flow.Voice( part.time );
+					// note struct and object
+					let note = {};
+					let vf_note;
+					// duration
+					if ( element.getElementsByTagName( 'type' ).length ) {
+						note.duration = mxmlDuration( element.getElementsByTagName( 'type' )[0].innerHTML );
+						note.align_center = false;
+					} else {
+						note.duration = mxmlDuration();
+						note.align_center = true;
+						voice.vf_voice.setStrict( false );
+					}
+					// dots
+					note.dots = element.getElementsByTagName( 'dot' ).length;
+					// stem
+					if ( element.getElementsByTagName( 'stem' ).length ) {
+						let stem = element.getElementsByTagName( 'stem' )[0].innerHTML;
+						if ( stem === 'up' )
+							note.stem_direction = Vex.Flow.Stem.UP;
+						else if ( stem === 'down' )
+							note.stem_direction = Vex.Flow.Stem.DOWN;
+						else if ( stem === 'double' )
+							;
+					}
+					if ( element.getElementsByTagName( 'rest' ).length ) {
+						note.duration += 'r';
+						note.keys = [ 'r/4' ];
+						vf_note = new Vex.Flow.StaveNote( note );
+					} else {
+						note.clef = stave.clef.type;
+						note.octave_shift = stave.clef.octave_shift;
+						note.keys = [];
+						let accidentals = [];
+						let sibling = element;
+						let index = 0;
+						do {
+							let pitch = mxmlPitch( sibling.getElementsByTagName( 'pitch' )[0] );
+							note.keys.push( pitch.step + '/' + pitch.octave );
+							let xml_accidentals = sibling.getElementsByTagName( 'accidental' );
+							if ( xml_accidentals.length )
+								accidentals.push( {
+									index: index,
+									type: mxmlAccidentalType( xml_accidentals[0] ),
+								} );
+							sibling = sibling.nextElementSibling;
+							index++;
+						} while ( sibling !== null && sibling.getElementsByTagName( 'chord' ).length );
+						vf_note = new Vex.Flow.StaveNote( note );
+						for ( let accidental of accidentals )
+							vf_note.addAccidental( accidental.index, new Vex.Flow.Accidental( accidental.type ) );
+					}
+					// beam
+					mxmlBeam( element, part, voice, vf_note );
+					// tie
+					mxmlTie( element, part, voice, vf_note, state.line_cnt );
+					// lyric
+					if ( element.getElementsByTagName( 'lyric' ).length ) {
+						let text = element.getElementsByTagName( 'lyric' )[0].getElementsByTagName( 'text' )[0].innerHTML;
+						let syllabic = element.getElementsByTagName( 'lyric' )[0].getElementsByTagName( 'syllabic' )[0].innerHTML;
+						if ( syllabic === 'begin' || syllabic === 'middle' )
+							text += ' -';
+						else if ( syllabic === 'end' || syllabic === 'single' )
+							;
+						var annotation = new Vex.Flow.Annotation( text );
+						annotation.setVerticalJustification( Vex.Flow.Annotation.VerticalJustify.BOTTOM );
+						vf_note.addAnnotation( 0, annotation );
+						// TODO vertical justify to the minimum height of the line
+					}
+					// TODO multiple lyrics
+					// dots
+					for ( let dot = 0; dot < note.dots; dot++ )
+						vf_note.addDotToAll();
+					//
+					voice.vf_voice.addTickable( vf_note );
+					// harmony
+					if ( stave_cnt === 0 && parseInt( voice.id ) === 1 ) {
+						voice = 'harmony';
+						if ( !( voice in stave.voices ) )
+							stave.voices[voice] = {
+								id: 'harmony',
+								vf_voice: null,
+								beam: [],
+								ties: {},
+							};
+						voice = stave.voices[voice];
+						if ( voice.vf_voice === null )
+							voice.vf_voice = new Vex.Flow.Voice( part.time );
+						if ( note.align_center )
+							voice.vf_voice.setStrict( false );
+						note = {
+							duration: note.duration,
+							dots: note.dots,
+						};
+						if ( stave.harmony !== null ) {
+							note.text = stave.harmony;
+							stave.harmony = null;
+						} else {
+							note.text = '';
+						}
+						vf_note = new Vex.Flow.TextNote( note );
+						vf_note.setContext( context );
+						voice.vf_voice.addTickable( vf_note );
+					}
+				}
+			}
+		}
+		renderer.resize( options.LINE_WIDTH, state.y ); // TODO delete line
+		for ( let part of parts ) {
+			for ( let stave of part.staves )
+				stave.vf_stave.setContext( context ).draw();
+			for ( let vf_connector of part.vf_connectors )
+				vf_connector.setContext( context ).draw();
+			part.vf_connectors = [];
+		}
+		for ( let strict of [ true, false ] ) {
+			let vf_voices = [];
+			for ( let part of parts ) {
+				for ( let stave of part.staves ) {
+					for ( let voice_id in stave.voices ) {
+						let voice = stave.voices[voice_id];
+						if ( voice.vf_voice !== null && ( voice.vf_voice.mode === Vex.Flow.Voice.Mode.STRICT ) === strict )
+							vf_voices.push( voice.vf_voice );
+					}
+				}
+			}
+			if ( vf_voices.length )
+				new Vex.Flow.Formatter().joinVoices( vf_voices ).formatToStave( vf_voices, parts[0].staves[0].vf_stave );
+			vf_voices = [];
+		}
+		for ( let part of parts ) {
+			for ( let stave of part.staves ) {
+				for ( let voice_id in stave.voices ) {
+					let voice = stave.voices[voice_id];
+					if ( voice.vf_voice !== null ) {
+						voice.vf_voice.draw( context, stave.vf_stave );
+						voice.vf_voice = null;
+					}
+				}
+				stave.vf_stave = null;
+			}
+		}
+		for ( let part of parts ) {
+			for ( let vf_beam of part.vf_beams )
+				vf_beam.setContext( context ).draw();
+			part.vf_beams = [];
+			for ( let vf_tie of part.vf_ties )
+				vf_tie.setContext( context ).draw();
+			part.vf_ties = [];
+		}
+		state.x += options.STAVE_WIDTH;
+	}
+	
+	renderer.resize( options.LINE_WIDTH, state.y + options.LINE_MARGIN );
+}
 
 function mxmlPartStaves( part, options, state ) {
 	// stave options
@@ -56,33 +395,22 @@ function mxmlPartStaves( part, options, state ) {
 		// create stave if it does not exist
 		if ( !( stave_cnt in part.staves ) )
 			part.staves[stave_cnt] = {
-				vf_stave: undefined,
-				clef: undefined,
+				vf_stave: null,
+				clef: null,
 				voices: {},
-				harmony: undefined,
+				harmony: null,
 			};
 		// shorthand to current stave
 		let stave = part.staves[stave_cnt];
 		// create vf_stave
 		stave.vf_stave = new Vex.Flow.Stave( state.x, state.y, options.STAVE_WIDTH, stave_options );
 		// add clef and key signature to the first stave of each line
-		if ( state.x === options.LINE_INDENT && stave.clef !== undefined )
+		if ( state.x === options.LINE_INDENT && stave.clef !== null )
 			mxmlStaveAddClef( stave );
-		if ( state.x === options.LINE_INDENT && part.key !== undefined )
+		if ( state.x === options.LINE_INDENT && part.key !== null )
 			stave.vf_stave.addKeySignature( part.key );
 		// move state.y to the bottom of the current stave
 		state.y += options.STAVE_HEIGHT;
-	}
-	// set part left text
-	if ( state.x === options.LINE_INDENT ) {
-		if ( part.staves.length === 1 ) {
-			part.getStave(0).vf_stave.setText( state.line_cnt ? part.abbreviation : part.name, Vex.Flow.Modifier.Position.LEFT );
-		} else {
-			let connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
-			connector.setType( Vex.Flow.StaveConnector.type.BRACE );
-			connector.setText( state.line_cnt ? part.abbreviation : part.name, Vex.Flow.Modifier.Position.LEFT );
-			part.vf_connectors.push( connector );
-		}
 	}
 	// add vertical part lines
 	if ( part.staves.length > 1 ) {
@@ -94,6 +422,32 @@ function mxmlPartStaves( part, options, state ) {
 		connector.setType( Vex.Flow.StaveConnector.type.SINGLE_RIGHT );
 		part.vf_connectors.push( connector );
 	}
+	// add a brace connector
+	var brace_connector;
+	if ( state.x === options.LINE_INDENT && part.staves.length > 1 ) {
+		brace_connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
+		brace_connector.setType( Vex.Flow.StaveConnector.type.BRACE );
+		part.vf_connectors.push( brace_connector );
+	}
+	// set part left text
+	if ( state.x === options.LINE_INDENT && options.displayPartNames ) {
+		let text = state.line_cnt ? part.abbreviation : part.name;
+		if ( part.staves.length === 1 )
+			part.getStave(0).vf_stave.setText( text, Vex.Flow.Modifier.Position.LEFT );
+		else
+			brace_connector.setText( text, Vex.Flow.Modifier.Position.LEFT );
+	}
+}
+
+function mxmlClef( xml_clef ) {
+	let type = mxmlClefType( xml_clef );
+	let octave_shift = mxmlClefOctaveShift( xml_clef );
+	let annotation = mxmlClefAnnotation( octave_shift );
+	return {
+		type: type,
+		annotation: annotation,
+		octave_shift: octave_shift,
+	};
 }
 
 function mxmlClefType( xml_clef ) {
@@ -148,17 +502,6 @@ function mxmlClefAnnotation( octave_shift ) {
 		case -2:
 			return '15va';
 	}
-}
-
-function mxmlClef( xml_clef ) {
-	let type = mxmlClefType( xml_clef );
-	let octave_shift = mxmlClefOctaveShift( xml_clef );
-	let annotation = mxmlClefAnnotation( octave_shift );
-	return {
-		type: type,
-		annotation: annotation,
-		octave_shift: octave_shift,
-	};
 }
 
 function mxmlStaveAddClef( stave ) {
@@ -399,319 +742,4 @@ function mxmlTie( element, part, voice, vf_note, line ) {
 		element = element.nextElementSibling;
 		index++;
 	} while ( element !== null && element.getElementsByTagName( 'chord' ).length );
-}
-
-function mxml( xml ) {
-	let renderer = new Vex.Flow.Renderer( document.getElementById( 'xml' ), Vex.Flow.Renderer.Backends.SVG );
-	let context = renderer.getContext();
-	var line_width = document.getElementById( 'xml' ).offsetWidth - 20;
-
-	var options = {
-		LINE_INDENT:  200,
-		STAVE_WIDTH:  320,
-		STAVE_HEIGHT: 100,
-		STAVE_MARGIN: 0,
-		PART_MARGIN:  20,
-		LINE_MARGIN:  100,
-	};
-
-	let score_partwise = xml.getElementsByTagName( 'score-partwise' )[0];
-	var part_list = score_partwise.getElementsByTagName( 'part-list' )[0];
-	// TODO part-group group-symbol (bracket)
-	var xml_parts = score_partwise.getElementsByTagName( 'part' );
-	var parts = [];
-	for ( let part_cnt = 0; part_cnt < xml_parts.length; part_cnt++ ) {
-		let xml_part = xml_parts[part_cnt];
-		parts.push ( {
-			id: xml_part.id,
-			name: part_list.getElementsByTagName( 'score-part' )[xml_part.id].getElementsByTagName( 'part-name' )[0].innerHTML,
-			abbreviation: part_list.getElementsByTagName( 'score-part' )[xml_part.id].getElementsByTagName( 'part-abbreviation' )[0].innerHTML,
-			key: undefined,
-			time: undefined,
-			staves: [],
-			measures: xml_part.getElementsByTagName( 'measure' ).length,
-			getStave: function( index ) {
-				if ( index < 0 )
-					index += this.staves.length;
-				return this.staves[index];
-			},
-			vf_connectors: [],
-			vf_beams: [],
-			vf_ties: [],
-		} );
-	}
-
-	var state = {
-		x: options.LINE_INDENT,
-		y: 20,
-		top: 20,
-		line_cnt: 0,
-		part_cnt: 0,
-	};
-
-	var i = 0;
-	var more = true;
-	while ( true ) {
-		// break if a part runs out of measures
-		for ( let part of parts ) {
-			if ( i >= part.measures ) {
-				more = false;
-				break;
-			}
-		}
-		if ( !more )
-			break;
-		// measure horizontal position
-		if ( state.x > options.LINE_INDENT && state.x + options.STAVE_WIDTH > line_width ) {
-			state.line_cnt++;
-			state.x = options.LINE_INDENT;
-			state.top = state.y;
-		} else {
-			state.y = state.top;
-		}
-		// loop each part
-		for ( state.part_cnt = 0; state.part_cnt < xml_parts.length; state.part_cnt++ ) {
-			// shorthand to current part
-			let part = parts[state.part_cnt];
-			// build part staves in case they are initialized
-			if ( part.staves.length )
-				mxmlPartStaves( part, options, state );
-			// loop each measure element
-			for ( let element of xml_parts[state.part_cnt].getElementsByTagName( 'measure' )[i].children ) {
-				// TODO direction: metronome and dynamics
-				if ( element.tagName === 'attributes' ) {
-					// build part staves in case the are not initialized
-					if ( !part.staves.length ) {
-						if ( element.getElementsByTagName( 'staves' ).length )
-							part.staves = new Array( parseInt( element.getElementsByTagName( 'staves' )[0].innerHTML ) );
-						else
-							part.staves = new Array( 1 );
-						mxmlPartStaves( part, options, state );
-					}
-					// add clef to staves
-					for ( let xml_clef of element.getElementsByTagName( 'clef' ) ) {
-						let stave_cnt = xml_clef.getAttribute( 'number' );
-						if ( stave_cnt !== null )
-							stave_cnt = parseInt( stave_cnt ) - 1;
-						else
-							stave_cnt = 0;
-						let stave = part.staves[stave_cnt];
-						stave.clef = mxmlClef( xml_clef );
-						mxmlStaveAddClef( stave );
-					}
-					// add key signature to staves
-					if ( element.getElementsByTagName( 'key' ).length ) {
-						part.key = mxmlKey( element.getElementsByTagName( 'key' )[0] );
-						for ( let stave of part.staves )
-							stave.vf_stave.addKeySignature( part.key );
-					}
-					// add time signature to staves
-					if ( element.getElementsByTagName( 'time' ).length ) {
-						part.time = mxmlTime( element.getElementsByTagName( 'time' )[0] );
-						for ( let stave of part.staves )
-							stave.vf_stave.addTimeSignature( part.time );
-					}
-				} else if ( element.tagName === 'barline' ) {
-					let location = element.getAttribute( 'location' );
-					if ( location === null )
-						location = 'right';
-					let bar_style = element.getElementsByTagName( 'bar-style' )[0].innerHTML;
-					if ( part.staves.length > 1 ) {
-						let type = mxmlBarLineConnectorType( location, bar_style );
-						let connector = new Vex.Flow.StaveConnector( part.getStave(0).vf_stave, part.getStave(-1).vf_stave );
-						connector.setType( type );
-						part.vf_connectors.push( connector );
-					} else if ( part.staves.length === 1 ) {
-						let type = mxmlBarType( bar_style );
-						switch ( location ) {
-							case 'right':
-								part.getStave(0).vf_stave.setEndBarType( type );
-								break;
-							case 'left':
-								part.getStave(0).vf_stave.setBegBarType( type );
-								break;
-							case 'middle':
-								break;
-						}
-					}
-				} else if ( element.tagName === 'harmony' ) {
-					let stave = part.staves[0];
-					stave.harmony = mxmlHarmony( element );
-				} else if ( element.tagName === 'note' ) {
-					if ( element.getElementsByTagName( 'chord' ).length )
-						continue;
-					// stave
-					let stave_cnt = element.getElementsByTagName( 'staff' );
-					if ( stave_cnt.length )
-						stave_cnt = parseInt( stave_cnt[0].innerHTML ) - 1;
-					else
-						stave_cnt = 0;
-					let stave = part.staves[stave_cnt];
-					// voice
-					let voice = element.getElementsByTagName( 'voice' )[0].innerHTML;
-					if ( !( voice in stave.voices ) )
-						stave.voices[voice] = {
-							id: voice,
-							vf_voice: undefined,
-							beam: [],
-							ties: {},
-						};
-					voice = stave.voices[voice];
-					if ( voice.vf_voice === undefined )
-						voice.vf_voice = new Vex.Flow.Voice( part.time );
-					// note struct and object
-					let note = {};
-					let vf_note;
-					// duration
-					if ( element.getElementsByTagName( 'type' ).length ) {
-						note.duration = mxmlDuration( element.getElementsByTagName( 'type' )[0].innerHTML );
-						note.align_center = false;
-					} else {
-						note.duration = mxmlDuration();
-						note.align_center = true;
-						voice.vf_voice.setStrict( false );
-					}
-					// dots
-					note.dots = element.getElementsByTagName( 'dot' ).length;
-					// stem
-					if ( element.getElementsByTagName( 'stem' ).length ) {
-						let stem = element.getElementsByTagName( 'stem' )[0].innerHTML;
-						if ( stem === 'up' )
-							note.stem_direction = Vex.Flow.Stem.UP;
-						else if ( stem === 'down' )
-							note.stem_direction = Vex.Flow.Stem.DOWN;
-						else if ( stem === 'double' )
-							;
-					}
-					if ( element.getElementsByTagName( 'rest' ).length ) {
-						note.duration += 'r';
-						note.keys = [ 'r/4' ];
-						vf_note = new Vex.Flow.StaveNote( note );
-					} else {
-						note.clef = stave.clef.type;
-						note.octave_shift = stave.clef.octave_shift;
-						note.keys = [];
-						note.accidentals = [];
-						let sibling = element;
-						let index = 0;
-						do {
-							let pitch = mxmlPitch( sibling.getElementsByTagName( 'pitch' )[0] );
-							note.keys.push( pitch.step + '/' + pitch.octave );
-							let xml_accidentals = sibling.getElementsByTagName( 'accidental' );
-							if ( xml_accidentals.length )
-								note.accidentals.push( {
-									index: index,
-									type: mxmlAccidentalType( xml_accidentals[0] ),
-								} );
-							sibling = sibling.nextElementSibling;
-							index++;
-						} while ( sibling !== null && sibling.getElementsByTagName( 'chord' ).length );
-						vf_note = new Vex.Flow.StaveNote( note );
-						for ( let accidental of note.accidentals )
-							vf_note.addAccidental( accidental.index, new Vex.Flow.Accidental( accidental.type ) );
-						note.accidentals = undefined;
-					}
-					// beam
-					mxmlBeam( element, part, voice, vf_note );
-					// tie
-					mxmlTie( element, part, voice, vf_note, state.line_cnt );
-					// lyric
-					if ( element.getElementsByTagName( 'lyric' ).length ) {
-						let text = element.getElementsByTagName( 'lyric' )[0].getElementsByTagName( 'text' )[0].innerHTML;
-						let syllabic = element.getElementsByTagName( 'lyric' )[0].getElementsByTagName( 'syllabic' )[0].innerHTML;
-						if ( syllabic === 'begin' || syllabic === 'middle' )
-							text += ' -';
-						else if ( syllabic === 'end' || syllabic === 'single' )
-							;
-						var annotation = new Vex.Flow.Annotation( text );
-						annotation.setVerticalJustification( Vex.Flow.Annotation.VerticalJustify.BOTTOM );
-						vf_note.addAnnotation( 0, annotation );
-						// TODO vertical justify to the minimum height of the line
-					}
-					// TODO multiple lyrics
-					// dots
-					for ( let dot = 0; dot < note.dots; dot++ )
-						vf_note.addDotToAll();
-					//
-					voice.vf_voice.addTickable( vf_note );
-					// harmony
-					if ( stave_cnt === 0 && parseInt( voice.id ) === 1 ) {
-						voice = 'harmony';
-						if ( !( voice in stave.voices ) )
-							stave.voices[voice] = {
-								id: 'harmony',
-								vf_voice: undefined,
-								beam: [],
-								ties: {},
-							};
-						voice = stave.voices[voice];
-						if ( voice.vf_voice === undefined )
-							voice.vf_voice = new Vex.Flow.Voice( part.time );
-						if ( note.align_center )
-							voice.vf_voice.setStrict( false );
-						note = {
-							duration: note.duration,
-							dots: note.dots,
-						};
-						if ( stave.harmony !== undefined ) {
-							note.text = stave.harmony;
-							stave.harmony = undefined;
-						} else {
-							note.text = '';
-						}
-						vf_note = new Vex.Flow.TextNote( note );
-						vf_note.setContext( context );
-						voice.vf_voice.addTickable( vf_note );
-					}
-				}
-			}
-		}
-		renderer.resize( line_width, state.y ); // TODO delete line
-		for ( let part of parts ) {
-			for ( let stave of part.staves )
-				stave.vf_stave.setContext( context ).draw();
-			for ( let vf_connector of part.vf_connectors )
-				vf_connector.setContext( context ).draw();
-			part.vf_connectors = [];
-		}
-		for ( let strict of [ true, false ] ) {
-			let vf_voices = [];
-			for ( let part of parts ) {
-				for ( let stave of part.staves ) {
-					for ( let voice_id in stave.voices ) {
-						let voice = stave.voices[voice_id];
-						if ( voice.vf_voice !== undefined && ( voice.vf_voice.mode === Vex.Flow.Voice.Mode.STRICT ) === strict )
-							vf_voices.push( voice.vf_voice );
-					}
-				}
-			}
-			if ( vf_voices.length )
-				new Vex.Flow.Formatter().joinVoices( vf_voices ).formatToStave( vf_voices, parts[0].staves[0].vf_stave );
-			vf_voices = [];
-		}
-		for ( let part of parts ) {
-			for ( let stave of part.staves ) {
-				for ( let voice_id in stave.voices ) {
-					let voice = stave.voices[voice_id];
-					if ( voice.vf_voice !== undefined ) {
-						voice.vf_voice.draw( context, stave.vf_stave );
-						voice.vf_voice = undefined;
-					}
-				}
-				stave.vf_stave = undefined;
-			}
-		}
-		for ( let part of parts ) {
-			for ( let vf_beam of part.vf_beams )
-				vf_beam.setContext( context ).draw();
-			part.vf_beams = [];
-			for ( let vf_tie of part.vf_ties )
-				vf_tie.setContext( context ).draw();
-			part.vf_ties = [];
-		}
-		state.x += options.STAVE_WIDTH;
-		i++;
-	}
-	
-	renderer.resize( line_width, state.y + options.LINE_MARGIN );
 }
