@@ -18,7 +18,12 @@ echo file_get_contents( 'musicxml.js' );
 		</script>
 		<script>
 mxmlLoad( 'container', function() {
-	mxmlRender( 'container' );
+	mxmlRender( 'container', {
+		transpose: {
+			diatonic: 2,
+			chromatic: 4,
+		},
+	} );
 } );
 		</script>
 	</body>

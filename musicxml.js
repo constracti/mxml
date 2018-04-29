@@ -4,12 +4,16 @@
  * part.name  . . . . . . . . . . . . . . String
  * part.abbreviation  . . . . . . . . . . String
  * part.key . . . . . . . . . . . . . . . String
+ * part.scale . . . . . . . . . . . . . . Array
+ * part.scale[] . . . . . . . . . . . . . int
  * part.time  . . . . . . . . . . . . . . String
  * part.staves  . . . . . . . . . . . . . Array
  * part.staves[].vf_stave . . . . . . . . Vex.Flow.Stave
  * part.staves[].clef.type  . . . . . . . String
  * part.staves[].clef.annotation  . . . . String
  * part.staves[].clef.octave_shift  . . . int
+ * part.staves[].alters . . . . . . . . . Object
+ * part.staves[].alters[] . . . . . . . . int
  * part.staves[].voices . . . . . . . . . Object
  * part.staves[].voices[].id  . . . . . . String
  * part.staves[].voices[].vf_voice  . . . Vex.Flow.Voice
@@ -68,10 +72,17 @@ function mxmlRender( containerId, options = {} ) {
 		options.PART_MARGIN = 20;
 	if ( !( 'LINE_MARGIN' in options ) )
 		options.LINE_MARGIN = 40;
+
 	if ( !( 'visibleParts' in options ) )
 		options.visibleParts = undefined;
 	if ( !( 'displayPartNames' in options ) )
 		options.displayPartNames = true;
+
+	if ( !( 'transpose' in options ) )
+		options.transpose = {
+			diatonic: 0,
+			chromatic: 0,
+		};
 
 	var score_partwise = xml.getElementsByTagName( 'score-partwise' )[0];
 	var part_list = score_partwise.getElementsByTagName( 'part-list' )[0];
@@ -88,6 +99,7 @@ function mxmlRender( containerId, options = {} ) {
 			id: xml_part.id,
 			xml: xml_part,
 			key: null,
+			scale: null,
 			time: null,
 			staves: [],
 			measures: xml_part.getElementsByTagName( 'measure' ).length,
@@ -162,7 +174,8 @@ function mxmlRender( containerId, options = {} ) {
 					}
 					// add key signature to staves
 					if ( element.getElementsByTagName( 'key' ).length ) {
-						part.key = mxmlKey( element.getElementsByTagName( 'key' )[0] );
+						part.key = mxmlKey( element.getElementsByTagName( 'key' )[0], options.transpose );
+						part.scale = mxmlScale( part.key );
 						for ( let stave of part.staves )
 							stave.vf_stave.addKeySignature( part.key );
 					}
@@ -197,7 +210,7 @@ function mxmlRender( containerId, options = {} ) {
 					}
 				} else if ( element.tagName === 'harmony' ) {
 					let stave = part.staves[0];
-					stave.harmony = mxmlHarmony( element );
+					stave.harmony = mxmlHarmony( element, options.transpose );
 				} else if ( element.tagName === 'note' ) {
 					if ( element.getElementsByTagName( 'chord' ).length )
 						continue;
@@ -246,6 +259,7 @@ function mxmlRender( containerId, options = {} ) {
 					}
 					if ( element.getElementsByTagName( 'rest' ).length ) {
 						note.duration += 'r';
+						// TODO align rests
 						note.keys = [ 'r/4' ];
 						vf_note = new Vex.Flow.StaveNote( note );
 					} else {
@@ -256,13 +270,12 @@ function mxmlRender( containerId, options = {} ) {
 						let sibling = element;
 						let index = 0;
 						do {
-							let pitch = mxmlPitch( sibling.getElementsByTagName( 'pitch' )[0] );
-							note.keys.push( pitch.step + '/' + pitch.octave );
-							let xml_accidentals = sibling.getElementsByTagName( 'accidental' );
-							if ( xml_accidentals.length )
+							let pitch = mxmlPitch( sibling.getElementsByTagName( 'pitch' )[0], options.transpose, part, stave );
+							note.keys.push( pitch.key );
+							if ( pitch.alter !== null )
 								accidentals.push( {
 									index: index,
-									type: mxmlAccidentalType( xml_accidentals[0] ),
+									type: mxmlAccidentalType( pitch.alter ),
 								} );
 							sibling = sibling.nextElementSibling;
 							index++;
@@ -359,6 +372,7 @@ function mxmlRender( containerId, options = {} ) {
 					}
 				}
 				stave.vf_stave = null;
+				stave.alters = {};
 			}
 		}
 		for ( let part of parts ) {
@@ -397,12 +411,14 @@ function mxmlPartStaves( part, options, state ) {
 			part.staves[stave_cnt] = {
 				vf_stave: null,
 				clef: null,
+				alters: {},
 				voices: {},
 				harmony: null,
 			};
 		// shorthand to current stave
 		let stave = part.staves[stave_cnt];
 		// create vf_stave
+		// TODO stave width depending on time signature
 		stave.vf_stave = new Vex.Flow.Stave( state.x, state.y, options.STAVE_WIDTH, stave_options );
 		// add clef and key signature to the first stave of each line
 		if ( state.x === options.LINE_INDENT && stave.clef !== null )
@@ -516,15 +532,65 @@ function mxmlStaveAddClef( stave ) {
 	}
 }
 
-function mxmlKey( xml_key ) {
-	let fifths = parseInt( xml_key.getElementsByTagName( 'fifths' )[0].innerHTML );
+function mxmlKey( xml_key, transpose ) {
+	// TODO cancel
+	var fifths = parseInt( xml_key.getElementsByTagName( 'fifths' )[0].innerHTML );
+	// apply transposition
+	fifths += 2 * transpose.diatonic + 7 * ( transpose.chromatic - 2 * transpose.diatonic );
+	var mode = xml_key.getElementsByTagName( 'mode' );
+	if ( mode.length )
+		mode = mode[0].innerHTML;
+	else
+		mode = 'major';
 	for ( let key in Vex.Flow.keySignature.keySpecs ) {
+		if ( ( mode === 'major' ) === ( key.slice( -1 ) === 'm' ) )
+			continue;
 		let keyspec = Vex.Flow.keySignature.keySpecs[key];
 		if ( fifths >= 0 && keyspec.acc !== 'b' && keyspec.num === fifths )
 			return key;
 		if ( fifths < 0 && keyspec.acc === 'b' && -keyspec.num === fifths )
 			return key;
 	}
+}
+
+/*
+ * @param  key     String e.g. G, Eb, Cm, F#m
+ * @return scale   Array
+ * @return scale[] int    alter of root at array index
+ */
+function mxmlScale( key ) {
+	var intervals = key.slice(-1) !== 'm' ? Vex.Flow.Music.scales.major : Vex.Flow.Music.scales.minor;
+	var step = key.slice(0, 1).toLowerCase();
+	step = Vex.Flow.Music.root_indices[step];
+	var alter = key.slice(1, 2);
+	if ( alter === '#' )
+		alter = 1;
+	else if ( alter === 'b' )
+		alter = -1;
+	else
+		alter = 0;
+	var scale_beg = [];
+	var scale_end = [];
+	if ( scale_beg.length || step === 0 )
+		scale_beg.push( alter );
+	else
+		scale_end.push( alter );
+	for ( let interval of intervals.slice(0, 6) ) {
+		let step_new = step + 1;
+		if ( step_new >= 7 )
+			step_new -= 7;
+		let alter_new = Vex.Flow.Music.root_values[step] - Vex.Flow.Music.root_values[step_new];
+		if ( alter_new >= 0 )
+			alter_new -= 12;
+		alter_new += alter + interval;
+		step = step_new;
+		alter = alter_new;
+		if ( scale_beg.length || step === 0 )
+			scale_beg.push( alter );
+		else
+			scale_end.push( alter );
+	}
+	return scale_beg.concat( scale_end );
 }
 
 function mxmlTime( xml_time ) {
@@ -569,24 +635,38 @@ function mxmlBarLineConnectorType( location, bar_style ) {
 			return Vex.Flow.StaveConnector.type.BOLD_DOUBLE_RIGHT;
 }
 
-function mxmlHarmony( xml_harmony ) {
-	let harmony = '';
-	let xml_root = xml_harmony.getElementsByTagName( 'root' )[0];
-	let root_step = xml_root.getElementsByTagName( 'root-step' )[0].innerHTML;
-	harmony = root_step;
-	let root_alter = xml_root.getElementsByTagName( 'root-alter' );
+function mxmlHarmony( xml_harmony, transpose ) {
+	var harmony = '';
+	var xml_root = xml_harmony.getElementsByTagName( 'root' )[0];
+	var root_step = xml_root.getElementsByTagName( 'root-step' )[0].innerHTML.toLowerCase();
+	var root_alter = xml_root.getElementsByTagName( 'root-alter' );
 	if ( root_alter.length )
 		root_alter = parseInt( root_alter[0].innerHTML );
 	else
 		root_alter = 0;
+	root_step = Vex.Flow.Music.root_indices[root_step];
+	root_alter += Vex.Flow.Music.root_values[root_step];
+	root_step += transpose.diatonic;
+	root_alter += transpose.chromatic;
+	while ( root_step >= 7 ) {
+		root_step -= 7;
+		root_alter -= 12;
+	}
+	while ( root_step < 0 ) {
+		root_step += 7;
+		root_alter -= 12;
+	}
+	root_alter -= Vex.Flow.Music.root_values[root_step];
+	root_step = Vex.Flow.Music.roots[root_step].toUpperCase();
+	harmony = root_step;
 	if ( root_alter === 0 )
 		;
 	else if ( root_alter === 1 )
 		harmony += '#';
 	else if ( root_alter === -1 )
 		harmony += 'b';
-	let kind = xml_harmony.getElementsByTagName( 'kind' )[0].innerHTML;
-	let seventh_index = kind.lastIndexOf( '-seventh' );
+	var kind = xml_harmony.getElementsByTagName( 'kind' )[0].innerHTML;
+	var seventh_index = kind.lastIndexOf( '-seventh' );
 	if ( seventh_index !== -1 )
 		kind = kind.substr( 0, seventh_index );
 	if ( kind === 'major' )
@@ -601,7 +681,7 @@ function mxmlHarmony( xml_harmony ) {
 		;
 	if ( seventh_index !== -1 )
 		harmony += '7';
-	// TODO beautify output
+	// TODO beautify harmony appearance
 	return harmony;
 }
 
@@ -633,32 +713,62 @@ function mxmlDuration( type ) {
 	}
 }
 
-function mxmlPitch( xml_pitch ) {
-	let alter = xml_pitch.getElementsByTagName( 'alter' );
+function mxmlPitch( xml_pitch, transpose, part, stave ) {
+	// xml
+	var step = xml_pitch.getElementsByTagName( 'step' )[0].innerHTML.toLowerCase();
+	step = Vex.Flow.Music.root_indices[step];
+	var alter = xml_pitch.getElementsByTagName( 'alter' );
 	if ( alter.length )
 		alter = parseInt( alter[0].innerHTML );
 	else
 		alter = 0;
+	var octave = parseInt( xml_pitch.getElementsByTagName( 'octave' )[0].innerHTML );
+	// transpose
+	alter += Vex.Flow.Music.root_values[step];
+	step += transpose.diatonic;
+	alter += transpose.chromatic;
+	while ( step >= 7 ) {
+		step -= 7;
+		alter -= 12;
+		octave += 1;
+	}
+	while ( step < 0 ) {
+		step += 7;
+		alter += 12;
+		octave -= 1;
+	}
+	alter -= Vex.Flow.Music.root_values[step];
+	var key = Vex.Flow.Music.roots[step] + '/' + octave;
+	// stave accidentals and part scale
+	if ( stave.alters[key] !== undefined ) {
+		if ( stave.alters[key] === alter )
+			alter = null;
+		else
+			stave.alters[key] = alter;
+	} else {
+		if ( part.scale[step] === alter )
+			alter = null;
+		else
+			stave.alters[key] = alter;
+	}
 	return {
-		step: xml_pitch.getElementsByTagName( 'step' )[0].innerHTML.toLowerCase(),
+		key: key,
 		alter: alter,
-		octave: parseInt( xml_pitch.getElementsByTagName( 'octave' )[0].innerHTML ),
 	};
 }
 
-function mxmlAccidentalType( xml_accidental ) {
-	// parentheses attribute is ignored
-	switch ( xml_accidental.innerHTML ) {
-		case 'double-flat':
-			return 'bb';
-		case 'flat':
-			return 'b';
-		case 'natural':
-			return 'n';
-		case 'sharp':
-			return '#';
-		case 'double-sharp':
-			return '##';
+function mxmlAccidentalType( alter ) {
+	switch ( alter ) {
+		case -2:
+			return 'bb'; // double-flat
+		case -1:
+			return 'b'; // flat
+		case 0:
+			return 'n'; // natural
+		case 1:
+			return '#'; // sharp
+		case 2:
+			return '##'; // double-sharp
 	}
 }
 
@@ -692,10 +802,7 @@ function mxmlTie( element, part, voice, vf_note, line ) {
 	do {
 		// get an integer representing the absolute pitch of the tied note
 		let pitch = element.getElementsByTagName( 'pitch' )[0];
-		pitch = mxmlPitch( pitch );
-		pitch = Vex.Flow.Music.NUM_TONES * pitch.octave +
-			Vex.Flow.Music.root_values[Vex.Flow.Music.root_indices[pitch.step]] +
-			pitch.alter;
+		pitch = mxmlTiePitch( pitch );
 		// note may have up to two ties of different type
 		for ( let tie of element.getElementsByTagName( 'tie' ) ) {
 			switch ( tie.getAttribute( 'type' ) ) {
@@ -742,4 +849,16 @@ function mxmlTie( element, part, voice, vf_note, line ) {
 		element = element.nextElementSibling;
 		index++;
 	} while ( element !== null && element.getElementsByTagName( 'chord' ).length );
+}
+
+function mxmlTiePitch( xml_pitch ) {
+	var step = xml_pitch.getElementsByTagName( 'step' )[0].innerHTML.toLowerCase();
+	step = Vex.Flow.Music.root_indices[step];
+	var alter = xml_pitch.getElementsByTagName( 'alter' );
+	if ( alter.length )
+		alter = parseInt( alter[0].innerHTML );
+	else
+		alter = 0;
+	var octave = parseInt( xml_pitch.getElementsByTagName( 'octave' )[0].innerHTML );
+	return Vex.Flow.Music.root_values[step] + alter + 12 * octave;
 }
