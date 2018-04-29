@@ -13,7 +13,7 @@
 		</div>
 		<script>
 <?php
-echo file_get_contents( 'musicxml.js' );
+echo file_get_contents( 'mxml.js' );
 ?>
 		</script>
 		<script>

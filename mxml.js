@@ -1,4 +1,7 @@
 /*
+ * Author:  constracti
+ * Version: 1.0
+ *
  * part.id  . . . . . . . . . . . . . . . String
  * part.xml . . . . . . . . . . . . . . . XMLDocument
  * part.name  . . . . . . . . . . . . . . String
