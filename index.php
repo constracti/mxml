@@ -7,22 +7,18 @@
 		<script src="https://unpkg.com/vexflow/releases/vexflow-min.js"></script>
 	</head>
 	<body>
-		<div id="container" data-mxml-url="<?= $_GET['mxml'] ?>.xml" data-mxml-renderer="renderer">
-			<div id="options"></div>
-			<div id="renderer"></div>
-		</div>
+		<div id="container" data-mxml-url="<?= $_GET['mxml'] ?>.xml"></div>
+		<div id="renderer"></div>
 		<script>
 <?php
 echo file_get_contents( 'mxml.js' );
 ?>
 		</script>
 		<script>
-mxmlLoad( 'container', function() {
-	mxmlRender( 'container', {
-		transpose: {
-			diatonic: 2,
-			chromatic: 4,
-		},
+mxmlLoad( document.getElementById( 'container' ), function( container ) {
+	var renderer = document.getElementById( 'renderer' );
+	mxmlRender( mxmlResponses[container.id], renderer, {
+		visibleParts: ['P1'],
 	} );
 } );
 		</script>

@@ -38,27 +38,20 @@
 
 mxmlResponses = {};
 
-function mxmlLoad( containerId, onLoad ) {
-	let container = document.getElementById( containerId );
-	let xhttp = new XMLHttpRequest();
+function mxmlLoad( container, onLoad = null ) {
+	var xhttp = new XMLHttpRequest();
 	xhttp.onreadystatechange = function() {
 		if ( this.readyState === 4 && this.status === 200 ) {
-			mxmlResponses[containerId] = this.responseXML;
-			onLoad();
+			mxmlResponses[container.id] = this.responseXML;
+			if ( onLoad !== null )
+				onLoad( container );
 		}
 	};
 	xhttp.open( 'GET', container.dataset.mxmlUrl, true );
 	xhttp.send();
 }
 
-function mxmlRender( containerId, options = {} ) {
-	var xml = mxmlResponses[containerId];
-	var container = document.getElementById( containerId );
-	var renderer = container.dataset.mxmlRenderer;
-	if ( renderer !== undefined )
-		renderer = document.getElementById( renderer );
-	else
-		renderer = container;
+function mxmlRender( xml, renderer, options = {} ) {
 	renderer.innerHTML = '';
 	if ( !( 'LINE_WIDTH' in options ) )
 		options.LINE_WIDTH = renderer.offsetWidth - 20;
@@ -288,6 +281,7 @@ function mxmlRender( containerId, options = {} ) {
 							vf_note.addAccidental( accidental.index, new Vex.Flow.Accidental( accidental.type ) );
 					}
 					// beam
+					// TODO use automatic beams if transpose is present
 					mxmlBeam( element, part, voice, vf_note );
 					// tie
 					mxmlTie( element, part, voice, vf_note, state.line_cnt );
@@ -703,7 +697,7 @@ function mxmlDuration( type ) {
 			return '8';
 		case '16th':
 			return '16';
-		case '32th':
+		case '32nd':
 			return '32';
 		case '64th':
 			return '64';
