@@ -20,6 +20,7 @@
  * part.staves[].voices . . . . . . . . . Object
  * part.staves[].voices[].id  . . . . . . String
  * part.staves[].voices[].vf_voice  . . . Vex.Flow.Voice
+ * part.staves[].voices[].tuplet  . . . . Object
  * part.staves[].voices[].beam  . . . . . Array
  * part.staves[].voices[].beam[]  . . . . Vex.Flow.StaveNote
  * part.staves[].voices[].ties  . . . . . Object
@@ -30,6 +31,8 @@
  * part.measures  . . . . . . . . . . . . int
  * part.vf_connectors . . . . . . . . . . Array
  * part.vf_connectors[] . . . . . . . . . Vex.Flow.StaveConnector
+ * part.vf_tuplets  . . . . . . . . . . . Array
+ * part.vf_tuplets[]  . . . . . . . . . . Vex.Flow.Tuplet
  * part.vf_beams  . . . . . . . . . . . . Array
  * part.vf_beams[]  . . . . . . . . . . . Vex.Flow.Beam
  * part.vf_ties . . . . . . . . . . . . . Array
@@ -105,6 +108,7 @@ function mxmlRender( xml, renderer, options = {} ) {
 				return this.staves[index];
 			},
 			vf_connectors: [],
+			vf_tuplets: [],
 			vf_beams: [],
 			vf_ties: [],
 		};
@@ -229,6 +233,7 @@ function mxmlRender( xml, renderer, options = {} ) {
 					voice = stave.voices[voice];
 					if ( voice.vf_voice === null )
 						voice.vf_voice = new Vex.Flow.Voice( part.time );
+					voice.vf_voice.setStrict( false );
 					// note struct and object
 					let note = {};
 					let vf_note;
@@ -239,7 +244,6 @@ function mxmlRender( xml, renderer, options = {} ) {
 					} else {
 						note.duration = mxmlDuration();
 						note.align_center = true;
-						voice.vf_voice.setStrict( false );
 					}
 					// dots
 					note.dots = element.getElementsByTagName( 'dot' ).length;
@@ -280,6 +284,8 @@ function mxmlRender( xml, renderer, options = {} ) {
 						for ( let accidental of accidentals )
 							vf_note.addAccidental( accidental.index, new Vex.Flow.Accidental( accidental.type ) );
 					}
+					// tuplet
+					mxmlTuplet( element, part, voice, vf_note );
 					// beam
 					// TODO use automatic beams if transpose is present
 					mxmlBeam( element, part, voice, vf_note );
@@ -317,8 +323,7 @@ function mxmlRender( xml, renderer, options = {} ) {
 						voice = stave.voices[voice];
 						if ( voice.vf_voice === null )
 							voice.vf_voice = new Vex.Flow.Voice( part.time );
-						if ( note.align_center )
-							voice.vf_voice.setStrict( false );
+						voice.vf_voice.setStrict( false );
 						note = {
 							duration: note.duration,
 							dots: note.dots,
@@ -373,6 +378,9 @@ function mxmlRender( xml, renderer, options = {} ) {
 			}
 		}
 		for ( let part of parts ) {
+			for ( let vf_tuplet of part.vf_tuplets )
+				vf_tuplet.setContext( context ).draw();
+			part.vf_tuplets = [];
 			for ( let vf_beam of part.vf_beams )
 				vf_beam.setContext( context ).draw();
 			part.vf_beams = [];
@@ -766,6 +774,27 @@ function mxmlAccidentalType( alter ) {
 			return '#'; // sharp
 		case 2:
 			return '##'; // double-sharp
+	}
+}
+
+function mxmlTuplet( element, part, voice, vf_note ) {
+	var time_modification = element.getElementsByTagName( 'time-modification' );
+	if ( !time_modification.length )
+		return;
+	time_modification = time_modification[0];
+	if ( voice.tuplet === undefined )
+		voice.tuplet = {
+			vf_notes: [],
+			options: {
+				num_notes: parseInt( time_modification.getElementsByTagName( 'actual-notes' )[0].innerHTML ),
+				notes_occupied: parseInt( time_modification.getElementsByTagName( 'normal-notes' )[0].innerHTML ),
+			},
+		};
+	voice.tuplet.vf_notes.push( vf_note );
+	// TODO ending tuplet criterion
+	if ( voice.tuplet.vf_notes.length === voice.tuplet.options.num_notes ) {
+		part.vf_tuplets.push( new Vex.Flow.Tuplet( voice.tuplet.vf_notes, voice.tuplet.options ) );
+		delete voice.tuplet;
 	}
 }
 
